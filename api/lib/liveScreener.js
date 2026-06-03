@@ -507,7 +507,33 @@ function companyMatchScore(entry, query, tokens) {
   if (ticker.includes(query)) return 76;
   if (name.includes(query)) return 68;
   if (tokens.every((token) => haystack.includes(token))) return 58;
+  const words = name.split(/[^a-z0-9]+/).filter((word) => word.length >= 3);
+  if (tokens.every((token) => words.some((word) => isCloseWord(token, word)))) return 48;
   return 0;
+}
+
+function isCloseWord(query, word) {
+  if (query.length < 4 || Math.abs(query.length - word.length) > 1) return false;
+  if (word.includes(query) || query.includes(word)) return true;
+  let edits = 0;
+  let i = 0;
+  let j = 0;
+  while (i < query.length && j < word.length) {
+    if (query[i] === word[j]) {
+      i += 1;
+      j += 1;
+      continue;
+    }
+    edits += 1;
+    if (edits > 1) return false;
+    if (query.length > word.length) i += 1;
+    else if (query.length < word.length) j += 1;
+    else {
+      i += 1;
+      j += 1;
+    }
+  }
+  return edits + (query.length - i) + (word.length - j) <= 1;
 }
 
 export async function searchCompanies(query, limit = 8) {
