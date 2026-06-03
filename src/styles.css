@@ -172,6 +172,26 @@ h3 {
   margin-top: 10px;
 }
 
+.lookup-message {
+  margin: 10px 0 0;
+  color: #53605a;
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+.lookup-message.loading {
+  color: #405de6;
+}
+
+.lookup-message.done {
+  color: #237a62;
+}
+
+.lookup-message.error {
+  color: #9a2f2f;
+}
+
 input[type="range"] {
   width: 100%;
   accent-color: #237a62;
@@ -328,8 +348,28 @@ input[type="range"] {
 
 .bar-chart,
 .radar-chart {
+  position: relative;
   width: 100%;
   height: 300px;
+}
+
+.empty-state,
+.score-empty {
+  display: grid;
+  place-items: center;
+  min-height: 100%;
+  color: #66706a;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.score-empty {
+  min-height: 58px;
+  padding: 14px;
+  background: #fff;
+  border: 1px dashed #cfd6c7;
+  border-radius: 8px;
 }
 
 .table-head {

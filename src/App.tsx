@@ -83,6 +83,9 @@ export default function App() {
   const [industry, setIndustry] = useState("All");
   const [selectedTicker, setSelectedTicker] = useState(fallbackSnapshot.featuredTickers[0]);
   const [minScore, setMinScore] = useState(0);
+  const [lookupTicker, setLookupTicker] = useState("");
+  const [lookupStatus, setLookupStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [lookupMessage, setLookupMessage] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -105,10 +108,77 @@ export default function App() {
     };
   }, []);
 
+  const normalizedTickerQuery = useMemo(() => {
+    const value = query.trim().toUpperCase();
+    return /^[A-Z][A-Z0-9.-]{0,9}$/.test(value) ? value : "";
+  }, [query]);
+
   const sortedScores = useMemo(
     () => [...snapshot.scores].sort((a, b) => b.totalScore - a.totalScore),
     [snapshot.scores]
   );
+
+  useEffect(() => {
+    if (!normalizedTickerQuery) {
+      setLookupTicker("");
+      setLookupStatus("idle");
+      setLookupMessage("");
+      return;
+    }
+
+    const alreadyLoaded = snapshot.scores.some((item) => item.ticker === normalizedTickerQuery);
+    if (alreadyLoaded) {
+      setLookupTicker(normalizedTickerQuery);
+      setLookupStatus("done");
+      setLookupMessage("");
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setLookupTicker(normalizedTickerQuery);
+      setLookupStatus("loading");
+      setLookupMessage(`正在实时查询 ${normalizedTickerQuery}`);
+      fetch(`/api/snapshot?tickers=${encodeURIComponent(normalizedTickerQuery)}`, {
+        signal: controller.signal
+      })
+        .then((response) => {
+          if (!response.ok) throw new Error("lookup unavailable");
+          return response.json();
+        })
+        .then((data: Snapshot) => {
+          const score = data.scores?.[0];
+          if (!score || score.totalScore === 0) {
+            throw new Error(score?.reasons?.growth || `${normalizedTickerQuery} 暂无可用公开数据`);
+          }
+          setSnapshot((current) => {
+            const withoutExisting = current.scores.filter((item) => item.ticker !== score.ticker);
+            return {
+              ...current,
+              generatedAt: data.generatedAt || current.generatedAt,
+              cadence: data.cadence || current.cadence,
+              source: data.source || current.source,
+              scores: [score, ...withoutExisting]
+            };
+          });
+          setIndustry("All");
+          setSelectedTicker(score.ticker);
+          setUsingFallback(false);
+          setLookupStatus("done");
+          setLookupMessage(`${score.ticker} 已加入实时股票池`);
+        })
+        .catch((error) => {
+          if (controller.signal.aborted) return;
+          setLookupStatus("error");
+          setLookupMessage(error instanceof Error ? error.message : `${normalizedTickerQuery} 查询失败`);
+        });
+    }, 450);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [normalizedTickerQuery, snapshot.scores]);
 
   const industries = useMemo(() => {
     const templates = Array.from(new Set(sortedScores.map((item) => item.template))).sort();
@@ -198,6 +268,9 @@ export default function App() {
             <ExternalLink size={15} />
             打开 Yahoo 查询输入标的
           </a>
+          {lookupMessage ? (
+            <p className={`lookup-message ${lookupStatus}`}>{lookupMessage}</p>
+          ) : null}
         </section>
 
         <section className="control-group">
@@ -292,26 +365,32 @@ export default function App() {
               <span>{filtered.length} 支</span>
             </div>
             <div className="bar-chart">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={barData} margin={{ top: 12, right: 14, left: -18, bottom: 0 }}>
-                  <CartesianGrid stroke="#d8dde8" strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="ticker" tickLine={false} axisLine={false} />
-                  <YAxis domain={[0, 30]} tickLine={false} axisLine={false} />
-                  <Tooltip cursor={{ fill: "rgba(64, 93, 230, 0.08)" }} />
-                  <Bar
-                    dataKey="score"
-                    radius={[4, 4, 0, 0]}
-                    onClick={(data) => {
-                      const payload = data as unknown as { ticker?: string };
-                      if (payload.ticker) setSelectedTicker(payload.ticker);
-                    }}
-                  >
-                    {barData.map((entry) => (
-                      <Cell key={entry.ticker} fill={entry.score >= 25 ? "#237a62" : entry.score >= 20 ? "#405de6" : "#a05a2c"} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+              {barData.length ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={barData} margin={{ top: 12, right: 14, left: -18, bottom: 0 }}>
+                    <CartesianGrid stroke="#d8dde8" strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="ticker" tickLine={false} axisLine={false} />
+                    <YAxis domain={[0, 30]} tickLine={false} axisLine={false} />
+                    <Tooltip cursor={{ fill: "rgba(64, 93, 230, 0.08)" }} />
+                    <Bar
+                      dataKey="score"
+                      radius={[4, 4, 0, 0]}
+                      onClick={(data) => {
+                        const payload = data as unknown as { ticker?: string };
+                        if (payload.ticker) setSelectedTicker(payload.ticker);
+                      }}
+                    >
+                      {barData.map((entry) => (
+                        <Cell key={entry.ticker} fill={entry.score >= 25 ? "#237a62" : entry.score >= 20 ? "#405de6" : "#a05a2c"} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="empty-state">
+                  {lookupStatus === "loading" && lookupTicker ? `${lookupTicker} 实时查询中` : "没有匹配结果"}
+                </div>
+              )}
             </div>
           </motion.div>
 
@@ -388,6 +467,13 @@ export default function App() {
                 </button>
               );
             })}
+            {!filtered.length ? (
+              <div className="score-empty">
+                {lookupStatus === "loading" && lookupTicker
+                  ? `正在从服务端计算 ${lookupTicker} 的六维评分`
+                  : "当前筛选条件下没有结果。输入具体 ticker 时会自动实时查询。"}
+              </div>
+            ) : null}
           </div>
         </section>
       </section>
