@@ -692,6 +692,31 @@ button.score-row:hover {
   font-weight: 750;
 }
 
+.company-brief {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 22px;
+  padding: 14px;
+  background: #fff;
+  border: 1px solid #dce2d5;
+  border-radius: 8px;
+}
+
+.company-brief h3 {
+  font-size: 16px;
+}
+
+.company-brief p {
+  margin: 0;
+  color: #53605a;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.company-brief strong {
+  color: #17202a;
+}
+
 .dimension-list {
   display: grid;
   gap: 12px;

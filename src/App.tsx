@@ -39,6 +39,11 @@ type SearchCandidate = {
   score?: number;
 };
 
+type CompanyBrief = {
+  business: string;
+  outlook: string;
+};
+
 const dimensions: Array<{ key: ScoreDimension; label: string; short: string }> = [
   { key: "growth", label: "高增长", short: "Growth" },
   { key: "quality", label: "高质量", short: "Quality" },
@@ -169,6 +174,113 @@ const modelTierRows = [
   { total: "<15", label: "低优先级", action: "通常不优先，除非是专项反转研究。" }
 ];
 
+const companyBriefs: Record<string, CompanyBrief> = {
+  ADBE: {
+    business: "数字创意和文档软件公司，核心产品覆盖 Creative Cloud、Document Cloud 和企业数字体验。",
+    outlook: "增长取决于 AI 创作工具、订阅提价能力和企业营销云需求能否抵消成熟软件增速放缓。"
+  },
+  AMD: {
+    business: "CPU、GPU 和数据中心芯片设计公司，覆盖服务器、PC、游戏和嵌入式市场。",
+    outlook: "前景取决于数据中心 GPU 放量、服务器份额提升，以及半导体周期复苏的持续性。"
+  },
+  AMT: {
+    business: "通信铁塔和数字基础设施 REIT，收入主要来自长期租约和移动网络覆盖需求。",
+    outlook: "前景取决于 5G/数据流量增长、租约续签、利率环境和资产负债表管理。"
+  },
+  AMZN: {
+    business: "电商、AWS 云计算、广告和会员生态平台，利润核心来自 AWS 与广告业务。",
+    outlook: "增长看 AWS 复苏、AI 云需求、零售效率改善和广告变现能力。"
+  },
+  AVGO: {
+    business: "半导体和基础设施软件公司，产品覆盖网络芯片、定制 ASIC、无线芯片和 VMware。",
+    outlook: "前景取决于 AI 网络/定制芯片需求、软件整合效率和客户集中度风险。"
+  },
+  COST: {
+    business: "会员制仓储零售商，依靠高周转、低毛利和会员费构建稳定模式。",
+    outlook: "增长来自门店扩张、会员续费和客单稳定性，但估值通常要求较高执行确定性。"
+  },
+  CRM: {
+    business: "企业 CRM 和云软件平台，覆盖销售、服务、营销、数据和 AI 自动化工具。",
+    outlook: "前景取决于企业 IT 支出、AI 功能变现和利润率提升能否持续。"
+  },
+  CRCL: {
+    business: "稳定币和区块链金融基础设施公司，核心围绕 USDC 发行、流通和相关服务。",
+    outlook: "前景取决于稳定币监管、USDC 采用率、利率环境和与传统支付网络的竞争。"
+  },
+  GOOGL: {
+    business: "搜索、广告、YouTube、Android、Google Cloud 和 AI 平台公司。",
+    outlook: "增长取决于广告韧性、云业务盈利、AI 搜索体验和监管压力的平衡。"
+  },
+  HD: {
+    business: "家装建材零售商，服务 DIY 消费者和专业承包商。",
+    outlook: "前景取决于住房周转、维修需求、专业客户增长和利率对家装消费的影响。"
+  },
+  JPM: {
+    business: "大型综合银行，覆盖消费者银行、投行、交易、资产管理和商业银行。",
+    outlook: "前景取决于净息差、信贷周期、资本要求和市场业务表现。"
+  },
+  LLY: {
+    business: "全球制药公司，重点产品覆盖糖尿病、减重、肿瘤和免疫等领域。",
+    outlook: "增长主要看 GLP-1 药物产能、适应症扩展和管线兑现，同时需关注高估值风险。"
+  },
+  MA: {
+    business: "全球支付网络公司，连接发卡行、收单机构、商户和消费者。",
+    outlook: "前景来自电子支付渗透、跨境消费和增值服务，但需关注监管与新支付轨道竞争。"
+  },
+  META: {
+    business: "社交平台和数字广告公司，核心资产包括 Facebook、Instagram、WhatsApp 和 AI 推荐系统。",
+    outlook: "前景取决于广告增长、AI 投放效率、资本开支回报和 Reality Labs 投入纪律。"
+  },
+  MSFT: {
+    business: "企业软件、云计算、操作系统、生产力工具和 AI 平台公司。",
+    outlook: "增长主要看 Azure、Copilot、企业软件续费和 AI 基础设施投入回报。"
+  },
+  MU: {
+    business: "存储芯片公司，主要生产 DRAM、NAND，并受益于数据中心和 AI HBM 需求。",
+    outlook: "前景高度依赖存储周期、HBM 供需、资本开支纪律和价格修复。"
+  },
+  NEE: {
+    business: "公用事业和可再生能源公司，核心包括 Florida Power & Light 和清洁能源资产。",
+    outlook: "前景取决于电力需求、利率、监管回报和可再生项目执行。"
+  },
+  NKE: {
+    business: "全球运动品牌，覆盖鞋服、直营渠道、批发渠道和数字销售。",
+    outlook: "前景取决于产品创新、库存消化、渠道修复和中国等国际市场需求。"
+  },
+  NOW: {
+    business: "企业工作流自动化软件公司，平台覆盖 IT、员工、客户和行业流程。",
+    outlook: "增长看大客户扩张、AI 工作流产品变现和企业自动化预算。"
+  },
+  NVDA: {
+    business: "AI 加速芯片、GPU、网络和软件生态公司，核心面向数据中心与高性能计算。",
+    outlook: "增长取决于 AI 资本开支持续性、供应能力、竞争格局和客户自研芯片替代风险。"
+  },
+  ORCL: {
+    business: "数据库、企业软件和云基础设施公司，客户基础集中在大型企业。",
+    outlook: "前景取决于云基础设施扩张、数据库迁移和 AI 训练/推理需求。"
+  },
+  PLTR: {
+    business: "数据分析和 AI 操作系统软件公司，服务政府、国防和企业客户。",
+    outlook: "增长取决于 AIP 商业化、大客户扩张和高估值下的利润兑现。"
+  },
+  TSLA: {
+    business: "电动车、能源存储和自动驾驶技术公司，也在布局机器人和 AI 计算。",
+    outlook: "前景取决于交付增长、毛利率修复、自动驾驶商业化和全球价格竞争。"
+  },
+  UNH: {
+    business: "美国医疗保险和医疗服务集团，核心包括 UnitedHealthcare 与 Optum。",
+    outlook: "前景取决于医疗成本控制、Medicare Advantage 利润率、监管压力和 Optum 服务增长。"
+  },
+  V: {
+    business: "全球支付网络公司，连接消费者、商户、银行和金融机构。",
+    outlook: "增长来自电子支付渗透和跨境交易恢复，但需关注费率监管与实时支付竞争。"
+  },
+  XOM: {
+    business: "综合能源公司，覆盖上游油气、炼化、化工和低碳项目。",
+    outlook: "前景取决于油气价格、资本纪律、股东回报和能源转型投入回报。"
+  }
+};
+
 const maxCompareTickers = 12;
 const tickerPattern = /^[A-Z][A-Z0-9.-]{0,9}$/;
 
@@ -253,6 +365,92 @@ function compactReason(stock: StockScore, dimension: ScoreDimension) {
     default:
       return stock.reasons?.[dimension] || "公开数据不足，暂按中性处理。";
   }
+}
+
+function fallbackCompanyBrief(stock: StockScore): CompanyBrief {
+  const industry = stock.industry || stock.sector || "所在行业";
+
+  switch (stock.template) {
+    case "SaaS / enterprise software":
+      return {
+        business: `${stock.name} 属于企业软件或 SaaS 公司，主要通过软件订阅、平台服务或企业客户方案创造收入。`,
+        outlook: "前景取决于客户续费、净收入留存、AI 功能变现和企业 IT 预算韧性。"
+      };
+    case "AI / cloud / platform technology":
+      return {
+        business: `${stock.name} 属于云、平台或 AI 相关科技公司，业务通常依赖规模化用户、数据和基础设施。`,
+        outlook: "前景取决于 AI 投入能否转化为收入、平台生态能否扩大，以及资本开支回报。"
+      };
+    case "Semiconductors / chip design":
+      return {
+        business: `${stock.name} 属于半导体设计或芯片相关公司，主要受产品周期、客户需求和供应链影响。`,
+        outlook: "前景取决于数据中心、AI、终端需求和行业库存周期是否继续改善。"
+      };
+    case "Payment networks / financial infrastructure":
+      return {
+        business: `${stock.name} 属于支付网络或金融基础设施公司，收入通常来自交易量、服务费和增值服务。`,
+        outlook: "前景取决于电子支付渗透、跨境交易、监管环境和新支付技术竞争。"
+      };
+    case "Banks":
+      return {
+        business: `${stock.name} 属于银行业，核心看存贷款、手续费收入、资本实力和信用风险管理。`,
+        outlook: "前景取决于利率路径、信贷质量、资本要求和客户资金稳定性。"
+      };
+    case "Insurance":
+      return {
+        business: `${stock.name} 属于保险行业，核心看承保纪律、投资收益、资本充足和赔付风险。`,
+        outlook: "前景取决于保费增长、赔付率、利率环境和准备金质量。"
+      };
+    case "REITs":
+      return {
+        business: `${stock.name} 属于 REIT 或地产资产运营公司，核心看租金、出租率、资产质量和杠杆。`,
+        outlook: "前景取决于利率、租户需求、债务到期压力和物业供需格局。"
+      };
+    case "Energy / oil and gas":
+      return {
+        business: `${stock.name} 属于能源或油气行业，业绩通常受商品价格、产量和资本纪律影响。`,
+        outlook: "前景取决于油气价格、成本曲线、资产质量和股东回报纪律。"
+      };
+    case "Healthcare":
+      return {
+        business: `${stock.name} 属于医疗健康行业，业务通常围绕医疗服务、保险、药品或设备需求展开。`,
+        outlook: "前景取决于需求刚性、成本控制、监管政策和产品/服务组合质量。"
+      };
+    case "Biotech / drug development":
+      return {
+        business: `${stock.name} 属于生物科技或药物研发公司，核心看管线、临床进展和现金 runway。`,
+        outlook: "前景取决于关键临床节点、监管审批、融资能力和商业化路径。"
+      };
+    case "Retail / e-commerce":
+      return {
+        business: `${stock.name} 属于零售或电商公司，核心看客流、客单、库存和渠道效率。`,
+        outlook: "前景取决于消费需求、库存周转、毛利率和线上线下渠道执行。"
+      };
+    case "Consumer brands / staples":
+      return {
+        business: `${stock.name} 属于消费品牌或必需消费品公司，核心看品牌、渠道和定价能力。`,
+        outlook: "前景取决于销量、价格、成本压力和品牌护城河能否保持。"
+      };
+    case "Industrials / manufacturing":
+      return {
+        business: `${stock.name} 属于工业或制造业公司，业绩通常与订单、产能利用率和供应链效率相关。`,
+        outlook: "前景取决于订单周期、利润率、资本开支回报和下游需求。"
+      };
+    case "Utilities":
+      return {
+        business: `${stock.name} 属于公用事业公司，核心看监管资产、准许回报、负债和股息覆盖。`,
+        outlook: "前景取决于电力需求、利率、监管回报和基础设施投资执行。"
+      };
+    default:
+      return {
+        business: `${stock.name} 属于 ${industry}，当前按 ${stock.template} 模板进行质量价值初筛。`,
+        outlook: "前景取决于行业需求、盈利质量、现金流稳定性和估值安全边际。"
+      };
+  }
+}
+
+function companyBrief(stock: StockScore): CompanyBrief {
+  return companyBriefs[stock.ticker] || fallbackCompanyBrief(stock);
 }
 
 function yahooUrl(ticker: string) {
@@ -569,6 +767,7 @@ export default function App() {
     () => sortedScores.find((item) => item.ticker === selectedTicker) || filtered[0] || sortedScores[0],
     [filtered, selectedTicker, sortedScores]
   );
+  const selectedBrief = useMemo(() => (selected ? companyBrief(selected) : null), [selected]);
 
   const radarData = useMemo(
     () =>
@@ -1027,6 +1226,20 @@ export default function App() {
               <span>{selected.industry || "Industry n/a"}</span>
               <span>{selected.template}</span>
             </div>
+
+            {selectedBrief ? (
+              <section className="company-brief">
+                <h3>公司简介</h3>
+                <p>
+                  <strong>业务：</strong>
+                  {selectedBrief.business}
+                </p>
+                <p>
+                  <strong>前景：</strong>
+                  {selectedBrief.outlook}
+                </p>
+              </section>
+            ) : null}
 
             <section className="dimension-list">
               {dimensions.map((dimension) => (
