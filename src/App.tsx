@@ -207,10 +207,17 @@ export default function App() {
       })
       .then((data: Snapshot) => {
         if (!alive || !Array.isArray(data.scores) || data.scores.length === 0) return;
-        setSnapshot(data);
+        setSnapshot((current) => {
+          const incoming = new Map(data.scores.map((score) => [score.ticker, score]));
+          const preserved = current.scores.filter((score) => !incoming.has(score.ticker));
+          return {
+            ...data,
+            scores: [...data.scores, ...preserved]
+          };
+        });
         setUsingFallback(false);
         setLoadedIndustryKey("");
-        setSelectedTicker((current) => data.scores.find((item) => item.ticker === current)?.ticker || data.featuredTickers[0] || data.scores[0].ticker);
+        setSelectedTicker((current) => current || data.featuredTickers[0] || data.scores[0].ticker);
       })
       .catch(() => {
         setUsingFallback(true);
