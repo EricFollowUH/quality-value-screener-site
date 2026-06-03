@@ -47,10 +47,14 @@ const dimensions: Array<{ key: ScoreDimension; label: string; short: string }> =
   { key: "sustainability", label: "可持续", short: "Moat" }
 ];
 
-const apiBase =
-  typeof window !== "undefined" && window.location.protocol === "file:"
-    ? "https://quality-value-screener-site.vercel.app"
-    : "";
+function resolveApiBase() {
+  if (typeof window === "undefined") return "";
+  const { hostname, protocol } = window.location;
+  const hasLocalApi = hostname === "quality-value-screener-site.vercel.app" || hostname === "localhost" || hostname === "127.0.0.1";
+  return protocol === "file:" || !hasLocalApi ? "https://quality-value-screener-site.vercel.app" : "";
+}
+
+const apiBase = resolveApiBase();
 
 const industryKeywords = new Set([
   "ai",
