@@ -71,6 +71,22 @@ const industryKeywords = new Set([
   "utilities"
 ]);
 
+const templateSearchKey: Record<string, string> = {
+  "AI / cloud / platform technology": "ai",
+  "Banks": "banks",
+  "Biotech / drug development": "biotech",
+  "Consumer brands / staples": "consumer",
+  "Energy / oil and gas": "energy",
+  "Industrials / manufacturing": "industrial",
+  "Insurance": "insurance",
+  "Payment networks / financial infrastructure": "payment",
+  "REITs": "reit",
+  "Retail / e-commerce": "retail",
+  "SaaS / enterprise software": "saas",
+  "Semiconductors / chip design": "semiconductor",
+  "Utilities": "utilities"
+};
+
 function tier(score: number) {
   if (score >= 25) return { label: "高质量候选", className: "tier-high" };
   if (score >= 20) return { label: "有吸引力", className: "tier-mid" };
@@ -163,6 +179,11 @@ export default function App() {
   }, [query, snapshot.scores]);
 
   const normalizedIndustryQuery = useMemo(() => shouldIndustryLookup(query), [query]);
+  const normalizedTemplateQuery = useMemo(() => {
+    if (query.trim()) return "";
+    return templateSearchKey[industry] || "";
+  }, [industry, query]);
+  const serverIndustryQuery = normalizedIndustryQuery || normalizedTemplateQuery;
 
   const sortedScores = useMemo(
     () => [...snapshot.scores].sort((a, b) => b.totalScore - a.totalScore),
@@ -232,14 +253,14 @@ export default function App() {
   }, [normalizedTickerQuery, snapshot.scores]);
 
   useEffect(() => {
-    if (!normalizedIndustryQuery) return;
+    if (!serverIndustryQuery) return;
 
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       setLookupTicker("");
       setLookupStatus("loading");
-      setLookupMessage(`正在实时计算 ${normalizedIndustryQuery} 行业股票池`);
-      fetch(`${apiBase}/api/snapshot?q=${encodeURIComponent(normalizedIndustryQuery)}`, {
+      setLookupMessage(`正在实时计算 ${serverIndustryQuery} 行业股票池`);
+      fetch(`${apiBase}/api/snapshot?q=${encodeURIComponent(serverIndustryQuery)}`, {
         signal: controller.signal
       })
         .then((response) => {
@@ -248,19 +269,19 @@ export default function App() {
         })
         .then((data: Snapshot) => {
           if (!Array.isArray(data.scores) || data.scores.length === 0) {
-            throw new Error(`${normalizedIndustryQuery} 暂无可用公开数据`);
+            throw new Error(`${serverIndustryQuery} 暂无可用公开数据`);
           }
           setSnapshot(data);
           setUsingFallback(false);
           setIndustry("All");
           setSelectedTicker(data.scores[0].ticker);
           setLookupStatus("done");
-          setLookupMessage(`${normalizedIndustryQuery} 已按服务端实时数据更新`);
+          setLookupMessage(`${serverIndustryQuery} 已按服务端实时数据更新`);
         })
         .catch((error) => {
           if (controller.signal.aborted) return;
           setLookupStatus("error");
-          setLookupMessage(error instanceof Error ? error.message : `${normalizedIndustryQuery} 查询失败`);
+          setLookupMessage(error instanceof Error ? error.message : `${serverIndustryQuery} 查询失败`);
         });
     }, 450);
 
@@ -268,7 +289,7 @@ export default function App() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [normalizedIndustryQuery]);
+  }, [serverIndustryQuery]);
 
   const industries = useMemo(() => {
     const templates = Array.from(new Set(sortedScores.map((item) => item.template))).sort();
