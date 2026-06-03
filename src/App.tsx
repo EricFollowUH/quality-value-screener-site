@@ -120,6 +120,12 @@ function shouldLiveLookup(value: string, scores: StockScore[]) {
   return ticker;
 }
 
+function shouldIndustryLookup(value: string) {
+  const keyword = value.trim().toLowerCase();
+  if (!keyword || !industryKeywords.has(keyword)) return "";
+  return keyword;
+}
+
 export default function App() {
   const [snapshot, setSnapshot] = useState<Snapshot>(fallbackSnapshot);
   const [usingFallback, setUsingFallback] = useState(true);
@@ -155,6 +161,8 @@ export default function App() {
   const normalizedTickerQuery = useMemo(() => {
     return shouldLiveLookup(query, snapshot.scores);
   }, [query, snapshot.scores]);
+
+  const normalizedIndustryQuery = useMemo(() => shouldIndustryLookup(query), [query]);
 
   const sortedScores = useMemo(
     () => [...snapshot.scores].sort((a, b) => b.totalScore - a.totalScore),
@@ -222,6 +230,45 @@ export default function App() {
       controller.abort();
     };
   }, [normalizedTickerQuery, snapshot.scores]);
+
+  useEffect(() => {
+    if (!normalizedIndustryQuery) return;
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setLookupTicker("");
+      setLookupStatus("loading");
+      setLookupMessage(`正在实时计算 ${normalizedIndustryQuery} 行业股票池`);
+      fetch(`${apiBase}/api/snapshot?q=${encodeURIComponent(normalizedIndustryQuery)}`, {
+        signal: controller.signal
+      })
+        .then((response) => {
+          if (!response.ok) throw new Error("industry lookup unavailable");
+          return response.json();
+        })
+        .then((data: Snapshot) => {
+          if (!Array.isArray(data.scores) || data.scores.length === 0) {
+            throw new Error(`${normalizedIndustryQuery} 暂无可用公开数据`);
+          }
+          setSnapshot(data);
+          setUsingFallback(false);
+          setIndustry("All");
+          setSelectedTicker(data.scores[0].ticker);
+          setLookupStatus("done");
+          setLookupMessage(`${normalizedIndustryQuery} 已按服务端实时数据更新`);
+        })
+        .catch((error) => {
+          if (controller.signal.aborted) return;
+          setLookupStatus("error");
+          setLookupMessage(error instanceof Error ? error.message : `${normalizedIndustryQuery} 查询失败`);
+        });
+    }, 450);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [normalizedIndustryQuery]);
 
   const industries = useMemo(() => {
     const templates = Array.from(new Set(sortedScores.map((item) => item.template))).sort();

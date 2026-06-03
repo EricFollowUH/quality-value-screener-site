@@ -27,6 +27,34 @@ const DEFAULT_TICKERS = [
 const FEATURED_TICKERS = ["MSFT", "NVDA", "V", "GOOGL", "UNH"];
 const SEC_USER_AGENT = process.env.SEC_USER_AGENT || "quality-value-screener/1.0 contact@example.com";
 
+const INDUSTRY_UNIVERSES = {
+  "saas": ["MSFT", "CRM", "ADBE", "NOW", "ORCL", "WDAY", "INTU", "SNOW", "DDOG", "ZS", "NET", "TEAM"],
+  "software": ["MSFT", "CRM", "ADBE", "NOW", "ORCL", "WDAY", "INTU", "SNOW", "DDOG", "ZS", "NET", "TEAM"],
+  "cloud": ["MSFT", "GOOGL", "AMZN", "ORCL", "NOW", "CRM", "SNOW", "DDOG", "NET", "MDB", "PLTR", "ADBE"],
+  "ai": ["NVDA", "MSFT", "GOOGL", "META", "AVGO", "AMD", "PLTR", "ORCL", "AMZN", "ADBE", "CRM", "NOW"],
+  "semiconductor": ["NVDA", "AVGO", "AMD", "QCOM", "TXN", "ADI", "MU", "INTC", "LRCX", "KLAC", "AMAT", "TSM"],
+  "semiconductors": ["NVDA", "AVGO", "AMD", "QCOM", "TXN", "ADI", "MU", "INTC", "LRCX", "KLAC", "AMAT", "TSM"],
+  "chip": ["NVDA", "AVGO", "AMD", "QCOM", "TXN", "ADI", "MU", "INTC", "LRCX", "KLAC", "AMAT", "TSM"],
+  "chips": ["NVDA", "AVGO", "AMD", "QCOM", "TXN", "ADI", "MU", "INTC", "LRCX", "KLAC", "AMAT", "TSM"],
+  "energy": ["XOM", "CVX", "COP", "EOG", "SLB", "MPC", "PSX", "VLO", "OXY", "HAL", "KMI", "WMB"],
+  "oil": ["XOM", "CVX", "COP", "EOG", "SLB", "MPC", "PSX", "VLO", "OXY", "HAL", "KMI", "WMB"],
+  "gas": ["XOM", "CVX", "COP", "EOG", "SLB", "MPC", "PSX", "VLO", "OXY", "HAL", "KMI", "WMB"],
+  "bank": ["JPM", "BAC", "WFC", "C", "GS", "MS", "USB", "PNC", "TFC", "BK", "STT", "SCHW"],
+  "banks": ["JPM", "BAC", "WFC", "C", "GS", "MS", "USB", "PNC", "TFC", "BK", "STT", "SCHW"],
+  "financial": ["JPM", "BAC", "V", "MA", "AXP", "GS", "MS", "BLK", "SCHW", "SPGI", "ICE", "CME"],
+  "payment": ["V", "MA", "AXP", "PYPL", "FI", "FIS", "GPN", "COF", "DFS", "SQ"],
+  "insurance": ["BRK.B", "PGR", "CB", "TRV", "AIG", "MET", "PRU", "AFL", "ALL", "HIG"],
+  "reit": ["AMT", "PLD", "EQIX", "O", "PSA", "WELL", "SPG", "DLR", "CCI", "VICI"],
+  "reits": ["AMT", "PLD", "EQIX", "O", "PSA", "WELL", "SPG", "DLR", "CCI", "VICI"],
+  "healthcare": ["UNH", "LLY", "JNJ", "ABBV", "MRK", "TMO", "DHR", "ABT", "ISRG", "SYK", "AMGN", "GILD"],
+  "biotech": ["AMGN", "GILD", "REGN", "VRTX", "BIIB", "MRNA", "BMRN", "ILMN", "INCY", "ALNY"],
+  "retail": ["AMZN", "COST", "HD", "WMT", "TGT", "LOW", "TJX", "NKE", "SBUX", "MCD"],
+  "consumer": ["COST", "WMT", "PG", "KO", "PEP", "MCD", "NKE", "SBUX", "HD", "LOW"],
+  "industrial": ["CAT", "DE", "HON", "GE", "RTX", "UNP", "UPS", "ETN", "PH", "EMR"],
+  "utility": ["NEE", "SO", "DUK", "AEP", "EXC", "SRE", "D", "PEG", "XEL", "ED"],
+  "utilities": ["NEE", "SO", "DUK", "AEP", "EXC", "SRE", "D", "PEG", "XEL", "ED"]
+};
+
 const METADATA = {
   ADBE: ["Technology", "Software - Application"],
   AMD: ["Technology", "Semiconductors"],
@@ -459,6 +487,12 @@ export async function screenTickers(tickers = DEFAULT_TICKERS) {
   );
 
   return scores.sort((a, b) => b.totalScore - a.totalScore);
+}
+
+export function resolveSearchUniverse(query) {
+  const key = String(query || "").trim().toLowerCase();
+  if (!key) return null;
+  return INDUSTRY_UNIVERSES[key] || null;
 }
 
 export { DEFAULT_TICKERS, FEATURED_TICKERS };

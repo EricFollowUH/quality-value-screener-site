@@ -1,4 +1,4 @@
-import { DEFAULT_TICKERS, FEATURED_TICKERS, screenTickers } from "./lib/liveScreener.js";
+import { DEFAULT_TICKERS, FEATURED_TICKERS, resolveSearchUniverse, screenTickers } from "./lib/liveScreener.js";
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -15,8 +15,9 @@ export default async function handler(req, res) {
     .map((ticker) => ticker.trim().toUpperCase())
     .filter(Boolean)
     .slice(0, 30);
+  const searchUniverse = resolveSearchUniverse(req.query?.q);
 
-  const list = tickers.length ? tickers : DEFAULT_TICKERS;
+  const list = tickers.length ? tickers : searchUniverse || DEFAULT_TICKERS;
 
   try {
     const scores = await screenTickers(list);
@@ -24,7 +25,9 @@ export default async function handler(req, res) {
     res.status(200).json({
       generatedAt: new Date().toISOString(),
       cadence: "live",
-      source: "Live server scoring: SEC fundamentals + public market price.",
+      source: searchUniverse
+        ? `Live server scoring for ${String(req.query.q).trim()}: SEC fundamentals + public market price.`
+        : "Live server scoring: SEC fundamentals + public market price.",
       featuredTickers: FEATURED_TICKERS,
       scores
     });
