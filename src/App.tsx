@@ -29,6 +29,13 @@ import {
 import { fallbackSnapshot } from "./fallbackData";
 import type { ScoreDimension, Snapshot, StockScore } from "./types";
 
+type SearchCandidate = {
+  ticker: string;
+  name: string;
+  exchange?: string;
+  score?: number;
+};
+
 const dimensions: Array<{ key: ScoreDimension; label: string; short: string }> = [
   { key: "growth", label: "高增长", short: "Growth" },
   { key: "quality", label: "高质量", short: "Quality" },
@@ -77,6 +84,7 @@ const templateSearchKey: Record<string, string> = {
   "Biotech / drug development": "biotech",
   "Consumer brands / staples": "consumer",
   "Energy / oil and gas": "energy",
+  "Healthcare": "healthcare",
   "Industrials / manufacturing": "industrial",
   "Insurance": "insurance",
   "Payment networks / financial infrastructure": "payment",
@@ -86,6 +94,25 @@ const templateSearchKey: Record<string, string> = {
   "Semiconductors / chip design": "semiconductor",
   "Utilities": "utilities"
 };
+
+const industryOptions = [
+  "All",
+  "SaaS / enterprise software",
+  "AI / cloud / platform technology",
+  "Semiconductors / chip design",
+  "Payment networks / financial infrastructure",
+  "Banks",
+  "Insurance",
+  "REITs",
+  "Energy / oil and gas",
+  "Healthcare",
+  "Biotech / drug development",
+  "Retail / e-commerce",
+  "Consumer brands / staples",
+  "Industrials / manufacturing",
+  "Utilities",
+  "General quality/value"
+];
 
 function tier(score: number) {
   if (score >= 25) return { label: "高质量候选", className: "tier-high" };
@@ -123,16 +150,13 @@ function sourceText(snapshot: Snapshot, usingFallback: boolean) {
     : snapshot.source;
 }
 
-function shouldLiveLookup(value: string, scores: StockScore[]) {
+function shouldLiveLookup(value: string, scores: StockScore[], candidates: SearchCandidate[]) {
   const ticker = value.trim().toUpperCase();
   if (!/^[A-Z][A-Z0-9.-]{0,9}$/.test(ticker)) return "";
   const keyword = ticker.toLowerCase();
   if (industryKeywords.has(keyword)) return "";
-  const localTextMatch = scores.some((item) => {
-    const haystack = `${item.name} ${item.sector} ${item.industry} ${item.template}`.toLowerCase();
-    return haystack.includes(keyword);
-  });
-  if (localTextMatch) return "";
+  if (scores.some((item) => item.ticker === ticker)) return "";
+  if (!candidates.some((candidate) => candidate.ticker === ticker)) return "";
   return ticker;
 }
 
@@ -152,6 +176,9 @@ export default function App() {
   const [lookupTicker, setLookupTicker] = useState("");
   const [lookupStatus, setLookupStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [lookupMessage, setLookupMessage] = useState("");
+  const [searchCandidates, setSearchCandidates] = useState<SearchCandidate[]>([]);
+  const [candidateStatus, setCandidateStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [loadedIndustryKey, setLoadedIndustryKey] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -164,6 +191,7 @@ export default function App() {
         if (!alive || !Array.isArray(data.scores) || data.scores.length === 0) return;
         setSnapshot(data);
         setUsingFallback(false);
+        setLoadedIndustryKey("");
         setSelectedTicker((current) => data.scores.find((item) => item.ticker === current)?.ticker || data.featuredTickers[0] || data.scores[0].ticker);
       })
       .catch(() => {
@@ -173,10 +201,6 @@ export default function App() {
       alive = false;
     };
   }, []);
-
-  const normalizedTickerQuery = useMemo(() => {
-    return shouldLiveLookup(query, snapshot.scores);
-  }, [query, snapshot.scores]);
 
   const normalizedIndustryQuery = useMemo(() => shouldIndustryLookup(query), [query]);
   const normalizedTemplateQuery = useMemo(() => {
@@ -189,6 +213,45 @@ export default function App() {
     () => [...snapshot.scores].sort((a, b) => b.totalScore - a.totalScore),
     [snapshot.scores]
   );
+
+  const normalizedTickerQuery = useMemo(() => {
+    return shouldLiveLookup(query, snapshot.scores, searchCandidates);
+  }, [query, searchCandidates, snapshot.scores]);
+
+  useEffect(() => {
+    const value = query.trim();
+    if (!value || normalizedIndustryQuery || value.length < 2) {
+      setSearchCandidates([]);
+      setCandidateStatus("idle");
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setCandidateStatus("loading");
+      fetch(`${apiBase}/api/search?q=${encodeURIComponent(value)}`, {
+        signal: controller.signal
+      })
+        .then((response) => {
+          if (!response.ok) throw new Error("company search unavailable");
+          return response.json();
+        })
+        .then((data: { matches?: SearchCandidate[] }) => {
+          setSearchCandidates(Array.isArray(data.matches) ? data.matches : []);
+          setCandidateStatus("done");
+        })
+        .catch(() => {
+          if (controller.signal.aborted) return;
+          setSearchCandidates([]);
+          setCandidateStatus("error");
+        });
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [normalizedIndustryQuery, query]);
 
   useEffect(() => {
     if (!normalizedTickerQuery) {
@@ -233,6 +296,7 @@ export default function App() {
               scores: [score, ...withoutExisting]
             };
           });
+          setLoadedIndustryKey("");
           setIndustry("All");
           setSelectedTicker(score.ticker);
           setUsingFallback(false);
@@ -273,7 +337,7 @@ export default function App() {
           }
           setSnapshot(data);
           setUsingFallback(false);
-          setIndustry("All");
+          setLoadedIndustryKey(serverIndustryQuery);
           setSelectedTicker(data.scores[0].ticker);
           setLookupStatus("done");
           setLookupMessage(`${serverIndustryQuery} 已按服务端实时数据更新`);
@@ -291,25 +355,45 @@ export default function App() {
     };
   }, [serverIndustryQuery]);
 
-  const industries = useMemo(() => {
-    const templates = Array.from(new Set(sortedScores.map((item) => item.template))).sort();
-    return ["All", ...templates];
-  }, [sortedScores]);
+  const localStockMatches = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle || normalizedIndustryQuery) return [];
+    return sortedScores
+      .filter((item) => item.ticker.toLowerCase().includes(needle) || item.name.toLowerCase().includes(needle))
+      .slice(0, 5);
+  }, [normalizedIndustryQuery, query, sortedScores]);
+
+  const remoteCandidates = useMemo(() => {
+    const loadedTickers = new Set(localStockMatches.map((item) => item.ticker));
+    return searchCandidates.filter((candidate) => !loadedTickers.has(candidate.ticker)).slice(0, 5);
+  }, [localStockMatches, searchCandidates]);
+
+  const searchHint = useMemo(() => {
+    const value = query.trim();
+    if (!value) return "";
+    if (normalizedIndustryQuery) return `${value} 识别为行业关键词，正在使用服务端行业股票池。`;
+    if (candidateStatus === "loading") return "正在匹配公司名和代码。";
+    const count = localStockMatches.length + remoteCandidates.length;
+    if (count > 0) return `匹配到 ${count} 个候选。`;
+    if (candidateStatus === "error") return "候选搜索暂不可用。";
+    return "没有匹配的公司名或代码。";
+  }, [candidateStatus, localStockMatches.length, normalizedIndustryQuery, query, remoteCandidates.length]);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
+    const isIndustrySearchResult = Boolean(normalizedIndustryQuery && loadedIndustryKey === normalizedIndustryQuery);
+    const selectedIndustryKey = templateSearchKey[industry] || "";
+    const isSelectedIndustryUniverse = Boolean(!needle && selectedIndustryKey && loadedIndustryKey === selectedIndustryKey);
     return sortedScores.filter((item) => {
       const matchesText =
         !needle ||
+        isIndustrySearchResult ||
         item.ticker.toLowerCase().includes(needle) ||
-        item.name.toLowerCase().includes(needle) ||
-        item.sector.toLowerCase().includes(needle) ||
-        item.industry.toLowerCase().includes(needle) ||
-        item.template.toLowerCase().includes(needle);
-      const matchesIndustry = industry === "All" || item.template === industry;
+        item.name.toLowerCase().includes(needle);
+      const matchesIndustry = industry === "All" || isSelectedIndustryUniverse || item.template === industry;
       return matchesText && matchesIndustry && item.totalScore >= minScore;
     });
-  }, [industry, minScore, query, sortedScores]);
+  }, [industry, loadedIndustryKey, minScore, normalizedIndustryQuery, query, sortedScores]);
 
   const featured = useMemo(() => {
     const set = new Set(snapshot.featuredTickers);
@@ -349,10 +433,17 @@ export default function App() {
     return { high, avg, templates };
   }, [sortedScores]);
 
-  const customYahoo = query.trim() ? yahooUrl(query.trim().toUpperCase()) : yahooUrl(selected?.ticker || "MSFT");
+  const yahooLookupTicker = normalizedTickerQuery || localStockMatches[0]?.ticker || remoteCandidates[0]?.ticker || selected?.ticker || "MSFT";
+  const customYahoo = yahooUrl(yahooLookupTicker);
   const handleSearchChange = (value: string) => {
     setQuery(value);
     if (value.trim()) setIndustry("All");
+  };
+  const handleCandidatePick = (ticker: string) => {
+    setQuery(ticker);
+    setIndustry("All");
+    const loaded = snapshot.scores.find((item) => item.ticker === ticker);
+    if (loaded) setSelectedTicker(loaded.ticker);
   };
 
   return (
@@ -375,13 +466,32 @@ export default function App() {
             <input
               id="search"
               value={query}
-              placeholder="例如 MSFT, SaaS, Semiconductor"
+              placeholder="代码或公司名"
               onChange={(event) => handleSearchChange(event.target.value)}
             />
           </div>
+          {searchHint ? <p className="search-hint">{searchHint}</p> : null}
+          {localStockMatches.length || remoteCandidates.length ? (
+            <div className="search-suggestions" aria-label="搜索候选">
+              {localStockMatches.map((item) => (
+                <button key={`local-${item.ticker}`} className="suggestion-button" onClick={() => handleCandidatePick(item.ticker)}>
+                  <strong>{item.ticker}</strong>
+                  <span>{item.name}</span>
+                  <small>{item.totalScore}/30</small>
+                </button>
+              ))}
+              {remoteCandidates.map((candidate) => (
+                <button key={`remote-${candidate.ticker}`} className="suggestion-button" onClick={() => handleCandidatePick(candidate.ticker)}>
+                  <strong>{candidate.ticker}</strong>
+                  <span>{candidate.name}</span>
+                  <small>{candidate.exchange || "SEC"}</small>
+                </button>
+              ))}
+            </div>
+          ) : null}
           <a className="text-link" href={customYahoo} target="_blank" rel="noreferrer">
             <ExternalLink size={15} />
-            打开 Yahoo 查询输入标的
+            打开 Yahoo 查询候选标的
           </a>
           {lookupMessage ? (
             <p className={`lookup-message ${lookupStatus}`}>{lookupMessage}</p>
@@ -393,7 +503,7 @@ export default function App() {
           <div className="select-row">
             <Filter size={17} />
             <select id="industry" value={industry} onChange={(event) => setIndustry(event.target.value)}>
-              {industries.map((item) => (
+              {industryOptions.map((item) => (
                 <option key={item} value={item}>
                   {item === "All" ? "全部行业模板" : item}
                 </option>

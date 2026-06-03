@@ -211,6 +211,7 @@ async function getTickerIndex() {
       const tickerIdx = fields.indexOf("ticker");
       const cikIdx = fields.indexOf("cik");
       const nameIdx = fields.indexOf("name");
+      const exchangeIdx = fields.indexOf("exchange");
       const map = new Map();
       for (const row of payload.data || []) {
         const ticker = String(row[tickerIdx] || "").toUpperCase();
@@ -218,7 +219,8 @@ async function getTickerIndex() {
         map.set(ticker, {
           ticker,
           cik: String(row[cikIdx]).padStart(10, "0"),
-          name: row[nameIdx] || ticker
+          name: row[nameIdx] || ticker,
+          exchange: exchangeIdx >= 0 ? row[exchangeIdx] || "" : ""
         });
       }
       return map;
@@ -493,6 +495,38 @@ export function resolveSearchUniverse(query) {
   const key = String(query || "").trim().toLowerCase();
   if (!key) return null;
   return INDUSTRY_UNIVERSES[key] || null;
+}
+
+function companyMatchScore(entry, query, tokens) {
+  const ticker = entry.ticker.toLowerCase();
+  const name = String(entry.name || "").toLowerCase();
+  const haystack = `${ticker} ${name}`;
+  if (ticker === query) return 100;
+  if (ticker.startsWith(query)) return 92;
+  if (name.startsWith(query)) return 84;
+  if (ticker.includes(query)) return 76;
+  if (name.includes(query)) return 68;
+  if (tokens.every((token) => haystack.includes(token))) return 58;
+  return 0;
+}
+
+export async function searchCompanies(query, limit = 8) {
+  const normalized = String(query || "").trim().toLowerCase();
+  if (normalized.length < 2) return [];
+  const tokens = normalized.split(/\s+/).filter(Boolean);
+  const tickerIndex = await getTickerIndex();
+  return [...tickerIndex.values()]
+    .map((entry) => ({
+      ...entry,
+      score: companyMatchScore(entry, normalized, tokens)
+    }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.name.length - b.name.length;
+    })
+    .slice(0, limit)
+    .map(({ ticker, name, exchange, score }) => ({ ticker, name, exchange, score }));
 }
 
 export { DEFAULT_TICKERS, FEATURED_TICKERS };
