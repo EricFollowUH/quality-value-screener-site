@@ -72,8 +72,8 @@ function secUrl(ticker: string) {
 
 function sourceText(snapshot: Snapshot, usingFallback: boolean) {
   return usingFallback
-    ? "使用本地周度样例；线上接口失败时自动兜底"
-    : "Yahoo Finance 公共数据；Vercel 每周缓存刷新";
+    ? "本地兜底快照；等待服务端实时数据"
+    : snapshot.source;
 }
 
 export default function App() {
@@ -243,7 +243,7 @@ export default function App() {
       <section className="workspace">
         <header className="topbar">
           <div>
-            <p className="eyebrow">周度样例 · {fmtDate(snapshot.generatedAt)}</p>
+            <p className="eyebrow">{snapshot.cadence === "live" ? "实时快照" : "本地快照"} · {fmtDate(snapshot.generatedAt)}</p>
             <h2>行业化质量价值筛选</h2>
           </div>
           <div className="source-pill">

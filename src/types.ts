@@ -26,7 +26,7 @@ export type StockScore = {
 
 export type Snapshot = {
   generatedAt: string;
-  cadence: "weekly";
+  cadence: "weekly" | "live";
   source: string;
   featuredTickers: string[];
   scores: StockScore[];
