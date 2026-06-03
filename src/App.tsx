@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import {
   ArrowUpRight,
   BarChart3,
+  BookOpen,
   ChevronDown,
   ExternalLink,
   Filter,
@@ -120,6 +121,54 @@ const industryOptions = [
   "General quality/value"
 ];
 
+const scoreScaleRows = [
+  { score: "5", tone: "很强", meaning: "明显优于行业与历史基准，且质量较高。" },
+  { score: "4", tone: "强", meaning: "优于常规水平，但仍需核对估值或周期风险。" },
+  { score: "3", tone: "中性", meaning: "证据混合，适合作为观察对象继续跟踪。" },
+  { score: "2", tone: "弱", meaning: "存在明显短板，除非有清晰反转逻辑。" },
+  { score: "0-1", tone: "很弱", meaning: "公开数据暂不支持优先研究。" }
+];
+
+const modelDimensionRows = [
+  {
+    dimension: "高增长",
+    focus: "收入增速、利润增速、行业景气度",
+    use: "识别增长是否来自核心业务，而不是一次性因素或并购。"
+  },
+  {
+    dimension: "高质量",
+    focus: "毛利率、经营利润率、ROE / ROIC",
+    use: "判断商业模式、定价权和资本回报是否足够好。"
+  },
+  {
+    dimension: "高现金流",
+    focus: "FCF 收益率、FCF 利润率、经营现金流转化",
+    use: "检验利润能否真正转成现金，避免只看会计利润。"
+  },
+  {
+    dimension: "低估值",
+    focus: "P/E、EV/EBITDA、FCF yield、行业专用倍数",
+    use: "评估价格是否给了安全边际，而不是机械寻找低倍数。"
+  },
+  {
+    dimension: "低风险",
+    focus: "现金、债务、净债务/EBITDA、监管和周期风险",
+    use: "确认资产负债表能否承受逆风和估值回撤。"
+  },
+  {
+    dimension: "可持续",
+    focus: "护城河、留存、生态、客户集中度、管理执行",
+    use: "判断当前优势是否可以持续，而不是短期景气。"
+  }
+];
+
+const modelTierRows = [
+  { total: "25-30", label: "高质量候选", action: "值得进入更深研究和估值建模。" },
+  { total: "20-24", label: "有吸引力", action: "先找主要风险，再要求足够安全边际。" },
+  { total: "15-19", label: "普通观察", action: "只有明确催化或反转逻辑时才继续跟踪。" },
+  { total: "<15", label: "低优先级", action: "通常不优先，除非是专项反转研究。" }
+];
+
 const maxCompareTickers = 12;
 const tickerPattern = /^[A-Z][A-Z0-9.-]{0,9}$/;
 
@@ -166,10 +215,10 @@ function fmtMoneyMetric(value: number | null | undefined) {
 
 function scoreTone(score: number) {
   if (score >= 5) return "很强";
-  if (score >= 4) return "较强";
+  if (score >= 4) return "强";
   if (score >= 3) return "中性";
-  if (score >= 2) return "偏弱";
-  return "较弱";
+  if (score >= 2) return "弱";
+  return "很弱";
 }
 
 function compactReason(stock: StockScore, dimension: ScoreDimension) {
@@ -178,29 +227,29 @@ function compactReason(stock: StockScore, dimension: ScoreDimension) {
 
   switch (dimension) {
     case "growth":
-      return `判断${scoreTone(score)}：营收增速 ${fmtPctMetric(metrics.revenueGrowth)}，利润增速 ${fmtPctMetric(metrics.earningsGrowth)}。`;
+      return `${scoreTone(score)}。营收增速 ${fmtPctMetric(metrics.revenueGrowth)}，利润增速 ${fmtPctMetric(metrics.earningsGrowth)}。`;
     case "quality":
-      return `判断${scoreTone(score)}：毛利率 ${fmtPctMetric(metrics.grossMargins)}，经营利润率 ${fmtPctMetric(metrics.operatingMargins)}，ROE ${fmtPctMetric(metrics.returnOnEquity)}。`;
+      return `${scoreTone(score)}。毛利率 ${fmtPctMetric(metrics.grossMargins)}，经营利润率 ${fmtPctMetric(metrics.operatingMargins)}，ROE ${fmtPctMetric(metrics.returnOnEquity)}。`;
     case "cashFlow": {
       const fcfYield = metrics.fcfYield ?? (metrics.freeCashflow != null && metrics.marketCap ? metrics.freeCashflow / metrics.marketCap : null);
       const fcfMargin = metrics.freeCashflow != null && metrics.totalRevenue ? metrics.freeCashflow / metrics.totalRevenue : null;
       const conversion = metrics.freeCashflow != null && metrics.operatingCashflow ? metrics.freeCashflow / metrics.operatingCashflow : null;
-      return `判断${scoreTone(score)}：FCF 收益率 ${fmtPctMetric(fcfYield)}，FCF 利润率 ${fmtPctMetric(fcfMargin)}，现金转化 ${fmtPctMetric(conversion)}。`;
+      return `${scoreTone(score)}。FCF 收益率 ${fmtPctMetric(fcfYield)}，FCF 利润率 ${fmtPctMetric(fcfMargin)}，现金转化 ${fmtPctMetric(conversion)}。`;
     }
     case "valuation": {
       const pe = metrics.trailingPE ?? metrics.forwardPE ?? null;
       const fcfYield = metrics.fcfYield ?? (metrics.freeCashflow != null && metrics.marketCap ? metrics.freeCashflow / metrics.marketCap : null);
-      return `判断${scoreTone(score)}：P/E ${fmtMultiple(pe)}，FCF 收益率 ${fmtPctMetric(fcfYield)}，仅作相对吸引力参考。`;
+      return `${scoreTone(score)}。P/E ${fmtMultiple(pe)}，FCF 收益率 ${fmtPctMetric(fcfYield)}，仅作相对吸引力参考。`;
     }
     case "risk": {
       const netDebtToEbitda =
         metrics.totalCash != null && metrics.totalDebt != null && metrics.ebitda
           ? (metrics.totalDebt - metrics.totalCash) / metrics.ebitda
           : null;
-      return `判断${scoreTone(score)}：现金 ${fmtMoneyMetric(metrics.totalCash)}，债务 ${fmtMoneyMetric(metrics.totalDebt)}，净债务/EBITDA ${fmtMultiple(netDebtToEbitda)}。`;
+      return `${scoreTone(score)}。现金 ${fmtMoneyMetric(metrics.totalCash)}，债务 ${fmtMoneyMetric(metrics.totalDebt)}，净债务/EBITDA ${fmtMultiple(netDebtToEbitda)}。`;
     }
     case "sustainability":
-      return `判断${scoreTone(score)}：按 ${stock.template} 模板评估，重点看增长、利润率和行业护城河能否延续。`;
+      return `${scoreTone(score)}。按 ${stock.template} 模板评估，重点看增长、利润率和行业护城河能否延续。`;
     default:
       return stock.reasons?.[dimension] || "公开数据不足，暂按中性处理。";
   }
@@ -262,6 +311,7 @@ export default function App() {
   const [candidateStatus, setCandidateStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [loadedIndustryKey, setLoadedIndustryKey] = useState("");
   const [compareTickers, setCompareTickers] = useState<string[]>([]);
+  const [showModelGuide, setShowModelGuide] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -773,6 +823,10 @@ export default function App() {
             六维评分
           </div>
           <p>增长、质量、现金流、估值、风险、可持续性各 0-5 分；总分用于研究优先级，不是买卖指令。</p>
+          <button className="model-guide-button" type="button" onClick={() => setShowModelGuide(true)}>
+            <BookOpen size={16} />
+            查看模型说明
+          </button>
         </section>
       </aside>
 
@@ -1015,6 +1069,105 @@ export default function App() {
           </>
         ) : null}
       </aside>
+
+      {showModelGuide ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setShowModelGuide(false)}>
+          <motion.section
+            className="model-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="model-guide-title"
+            initial={{ opacity: 0, y: 18, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.18 }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className="model-modal-head">
+              <div>
+                <p className="eyebrow">Model Documentation</p>
+                <h2 id="model-guide-title">质量价值筛选模型说明</h2>
+              </div>
+              <button className="modal-close" type="button" onClick={() => setShowModelGuide(false)} aria-label="关闭模型说明">
+                <X size={18} />
+              </button>
+            </header>
+
+            <div className="model-doc-body">
+              <section>
+                <h3>核心逻辑</h3>
+                <ol className="model-steps">
+                  <li>
+                    <strong>先分行业。</strong>
+                    <span>银行、REITs、SaaS、半导体、能源等行业不能用同一套倍数机械比较。</span>
+                  </li>
+                  <li>
+                    <strong>再选指标。</strong>
+                    <span>每个行业优先使用更适配的增长、质量、现金流、估值和风险指标。</span>
+                  </li>
+                  <li>
+                    <strong>六维打分。</strong>
+                    <span>每维 0-5 分，总分 30 分，只代表研究优先级，不代表买卖指令。</span>
+                  </li>
+                  <li>
+                    <strong>保留反证。</strong>
+                    <span>若增长、现金流、估值或杠杆数据与假设相反，评分应下调。</span>
+                  </li>
+                </ol>
+              </section>
+
+              <section>
+                <h3>定性档位</h3>
+                <div className="model-table compact">
+                  {scoreScaleRows.map((row) => (
+                    <div className="model-table-row" key={row.score}>
+                      <strong>{row.score}</strong>
+                      <span>{row.tone}</span>
+                      <p>{row.meaning}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section>
+                <h3>六维评分口径</h3>
+                <div className="model-table">
+                  {modelDimensionRows.map((row) => (
+                    <div className="model-table-row" key={row.dimension}>
+                      <strong>{row.dimension}</strong>
+                      <span>{row.focus}</span>
+                      <p>{row.use}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section>
+                <h3>总分解释</h3>
+                <div className="model-table compact">
+                  {modelTierRows.map((row) => (
+                    <div className="model-table-row" key={row.total}>
+                      <strong>{row.total}</strong>
+                      <span>{row.label}</span>
+                      <p>{row.action}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section>
+                <h3>数据与边界</h3>
+                <p>
+                  服务端优先使用 SEC fundamentals 与公开市场价格生成实时快照；若服务端不可用，页面使用本地周度兜底快照。所有结果都是公开数据研究排序，
+                  不构成个性化投资、税务或交易建议。
+                </p>
+                <p>
+                  这个模型的主要用途是缩小研究范围。买入前仍应核对最新 10-K / 10-Q、电话会、行业周期、估值模型和个股特定风险。
+                </p>
+              </section>
+            </div>
+          </motion.section>
+        </div>
+      ) : null}
     </main>
   );
 }
