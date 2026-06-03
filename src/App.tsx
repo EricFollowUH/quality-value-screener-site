@@ -38,7 +38,38 @@ const dimensions: Array<{ key: ScoreDimension; label: string; short: string }> =
   { key: "sustainability", label: "可持续", short: "Moat" }
 ];
 
-const tickerExamples = ["MSFT", "NVDA", "V", "GOOGL", "UNH"];
+const apiBase =
+  typeof window !== "undefined" && window.location.protocol === "file:"
+    ? "https://quality-value-screener-site.vercel.app"
+    : "";
+
+const industryKeywords = new Set([
+  "ai",
+  "bank",
+  "banks",
+  "biotech",
+  "chip",
+  "chips",
+  "cloud",
+  "consumer",
+  "energy",
+  "financial",
+  "gas",
+  "healthcare",
+  "industrial",
+  "insurance",
+  "oil",
+  "payment",
+  "reit",
+  "reits",
+  "retail",
+  "saas",
+  "semiconductor",
+  "semiconductors",
+  "software",
+  "utility",
+  "utilities"
+]);
 
 function tier(score: number) {
   if (score >= 25) return { label: "高质量候选", className: "tier-high" };
@@ -76,6 +107,19 @@ function sourceText(snapshot: Snapshot, usingFallback: boolean) {
     : snapshot.source;
 }
 
+function shouldLiveLookup(value: string, scores: StockScore[]) {
+  const ticker = value.trim().toUpperCase();
+  if (!/^[A-Z][A-Z0-9.-]{0,9}$/.test(ticker)) return "";
+  const keyword = ticker.toLowerCase();
+  if (industryKeywords.has(keyword)) return "";
+  const localTextMatch = scores.some((item) => {
+    const haystack = `${item.name} ${item.sector} ${item.industry} ${item.template}`.toLowerCase();
+    return haystack.includes(keyword);
+  });
+  if (localTextMatch) return "";
+  return ticker;
+}
+
 export default function App() {
   const [snapshot, setSnapshot] = useState<Snapshot>(fallbackSnapshot);
   const [usingFallback, setUsingFallback] = useState(true);
@@ -89,7 +133,7 @@ export default function App() {
 
   useEffect(() => {
     let alive = true;
-    fetch("/api/snapshot")
+    fetch(`${apiBase}/api/snapshot`)
       .then((response) => {
         if (!response.ok) throw new Error("snapshot unavailable");
         return response.json();
@@ -109,9 +153,8 @@ export default function App() {
   }, []);
 
   const normalizedTickerQuery = useMemo(() => {
-    const value = query.trim().toUpperCase();
-    return /^[A-Z][A-Z0-9.-]{0,9}$/.test(value) ? value : "";
-  }, [query]);
+    return shouldLiveLookup(query, snapshot.scores);
+  }, [query, snapshot.scores]);
 
   const sortedScores = useMemo(
     () => [...snapshot.scores].sort((a, b) => b.totalScore - a.totalScore),
@@ -139,7 +182,7 @@ export default function App() {
       setLookupTicker(normalizedTickerQuery);
       setLookupStatus("loading");
       setLookupMessage(`正在实时查询 ${normalizedTickerQuery}`);
-      fetch(`/api/snapshot?tickers=${encodeURIComponent(normalizedTickerQuery)}`, {
+      fetch(`${apiBase}/api/snapshot?tickers=${encodeURIComponent(normalizedTickerQuery)}`, {
         signal: controller.signal
       })
         .then((response) => {
@@ -239,6 +282,10 @@ export default function App() {
   }, [sortedScores]);
 
   const customYahoo = query.trim() ? yahooUrl(query.trim().toUpperCase()) : yahooUrl(selected?.ticker || "MSFT");
+  const handleSearchChange = (value: string) => {
+    setQuery(value);
+    if (value.trim()) setIndustry("All");
+  };
 
   return (
     <main className="app-shell">
@@ -261,7 +308,7 @@ export default function App() {
               id="search"
               value={query}
               placeholder="例如 MSFT, SaaS, Semiconductor"
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => handleSearchChange(event.target.value)}
             />
           </div>
           <a className="text-link" href={customYahoo} target="_blank" rel="noreferrer">
