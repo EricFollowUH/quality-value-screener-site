@@ -453,6 +453,17 @@ function companyBrief(stock: StockScore): CompanyBrief {
   return companyBriefs[stock.ticker] || fallbackCompanyBrief(stock);
 }
 
+function cleanOutlookText(outlook: string) {
+  return outlook
+    .replace(/^前景取决于/, "取决于")
+    .replace(/^增长取决于/, "取决于")
+    .replace(/^增长主要看/, "主要看")
+    .replace(/^增长看/, "看")
+    .replace(/^增长来自/, "来自")
+    .replace(/^前景来自/, "来自")
+    .replace(/^前景高度依赖/, "高度依赖");
+}
+
 function yahooUrl(ticker: string) {
   return `https://finance.yahoo.com/quote/${encodeURIComponent(ticker)}`;
 }
@@ -1236,7 +1247,7 @@ export default function App() {
                 </p>
                 <p>
                   <strong>前景：</strong>
-                  {selectedBrief.outlook}
+                  {cleanOutlookText(selectedBrief.outlook)}
                 </p>
               </section>
             ) : null}
