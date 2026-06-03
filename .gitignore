@@ -6,3 +6,4 @@ dist/
 desktop-check.png
 mobile-check.png
 .vercel/
+*.tsbuildinfo
