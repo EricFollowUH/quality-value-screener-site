@@ -439,6 +439,14 @@ export default function App() {
     setQuery(value);
     if (value.trim()) setIndustry("All");
   };
+  const handleIndustryChange = (value: string) => {
+    setIndustry(value);
+    if (value !== "All") {
+      setQuery("");
+      setSearchCandidates([]);
+      setCandidateStatus("idle");
+    }
+  };
   const handleCandidatePick = (ticker: string) => {
     setQuery(ticker);
     setIndustry("All");
@@ -502,7 +510,7 @@ export default function App() {
           <label htmlFor="industry">行业模板</label>
           <div className="select-row">
             <Filter size={17} />
-            <select id="industry" value={industry} onChange={(event) => setIndustry(event.target.value)}>
+            <select id="industry" value={industry} onChange={(event) => handleIndustryChange(event.target.value)}>
               {industryOptions.map((item) => (
                 <option key={item} value={item}>
                   {item === "All" ? "全部行业模板" : item}
