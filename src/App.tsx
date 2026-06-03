@@ -145,6 +145,67 @@ function fmtDate(iso: string) {
   }).format(date);
 }
 
+function fmtPctMetric(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "暂无";
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function fmtMultiple(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "暂无";
+  return value.toFixed(1);
+}
+
+function fmtMoneyMetric(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "暂无";
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000_000_000) return `${(value / 1_000_000_000_000).toFixed(2)}T`;
+  if (abs >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`;
+  if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  return value.toFixed(0);
+}
+
+function scoreTone(score: number) {
+  if (score >= 5) return "很强";
+  if (score >= 4) return "较强";
+  if (score >= 3) return "中性";
+  if (score >= 2) return "偏弱";
+  return "较弱";
+}
+
+function compactReason(stock: StockScore, dimension: ScoreDimension) {
+  const metrics = stock.metrics || {};
+  const score = stock[dimension];
+
+  switch (dimension) {
+    case "growth":
+      return `增长${scoreTone(score)}：营收增速 ${fmtPctMetric(metrics.revenueGrowth)}，利润增速 ${fmtPctMetric(metrics.earningsGrowth)}。`;
+    case "quality":
+      return `质量${scoreTone(score)}：毛利率 ${fmtPctMetric(metrics.grossMargins)}，经营利润率 ${fmtPctMetric(metrics.operatingMargins)}，ROE ${fmtPctMetric(metrics.returnOnEquity)}。`;
+    case "cashFlow": {
+      const fcfYield = metrics.fcfYield ?? (metrics.freeCashflow != null && metrics.marketCap ? metrics.freeCashflow / metrics.marketCap : null);
+      const fcfMargin = metrics.freeCashflow != null && metrics.totalRevenue ? metrics.freeCashflow / metrics.totalRevenue : null;
+      const conversion = metrics.freeCashflow != null && metrics.operatingCashflow ? metrics.freeCashflow / metrics.operatingCashflow : null;
+      return `现金流${scoreTone(score)}：FCF 收益率 ${fmtPctMetric(fcfYield)}，FCF 利润率 ${fmtPctMetric(fcfMargin)}，现金转化 ${fmtPctMetric(conversion)}。`;
+    }
+    case "valuation": {
+      const pe = metrics.trailingPE ?? metrics.forwardPE ?? null;
+      const fcfYield = metrics.fcfYield ?? (metrics.freeCashflow != null && metrics.marketCap ? metrics.freeCashflow / metrics.marketCap : null);
+      return `估值${scoreTone(score)}：P/E ${fmtMultiple(pe)}，FCF 收益率 ${fmtPctMetric(fcfYield)}，仅作相对吸引力参考。`;
+    }
+    case "risk": {
+      const netDebtToEbitda =
+        metrics.totalCash != null && metrics.totalDebt != null && metrics.ebitda
+          ? (metrics.totalDebt - metrics.totalCash) / metrics.ebitda
+          : null;
+      return `风险${scoreTone(score)}：现金 ${fmtMoneyMetric(metrics.totalCash)}，债务 ${fmtMoneyMetric(metrics.totalDebt)}，净债务/EBITDA ${fmtMultiple(netDebtToEbitda)}。`;
+    }
+    case "sustainability":
+      return `可持续性${scoreTone(score)}：按 ${stock.template} 模板评估，重点看增长、利润率和行业护城河能否延续。`;
+    default:
+      return stock.reasons?.[dimension] || "公开数据不足，暂按中性处理。";
+  }
+}
+
 function yahooUrl(ticker: string) {
   return `https://finance.yahoo.com/quote/${encodeURIComponent(ticker)}`;
 }
@@ -933,7 +994,7 @@ export default function App() {
               {dimensions.map((dimension) => (
                 <p key={dimension.key}>
                   <strong>{dimension.label}：</strong>
-                  {selected.reasons[dimension.key]}
+                  {compactReason(selected, dimension.key)}
                 </p>
               ))}
             </section>
