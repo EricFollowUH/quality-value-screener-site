@@ -6,10 +6,12 @@ import {
   ChevronDown,
   ExternalLink,
   Filter,
+  Plus,
   Search,
   ShieldAlert,
   SlidersHorizontal,
-  ChartLine
+  ChartLine,
+  X
 } from "lucide-react";
 import {
   Bar,
@@ -114,6 +116,9 @@ const industryOptions = [
   "General quality/value"
 ];
 
+const maxCompareTickers = 12;
+const tickerPattern = /^[A-Z][A-Z0-9.-]{0,9}$/;
+
 function tier(score: number) {
   if (score >= 25) return { label: "高质量候选", className: "tier-high" };
   if (score >= 20) return { label: "有吸引力", className: "tier-mid" };
@@ -152,11 +157,12 @@ function sourceText(snapshot: Snapshot, usingFallback: boolean) {
 
 function shouldLiveLookup(value: string, scores: StockScore[], candidates: SearchCandidate[]) {
   const ticker = value.trim().toUpperCase();
-  if (!/^[A-Z][A-Z0-9.-]{0,9}$/.test(ticker)) return "";
+  if (!tickerPattern.test(ticker)) return "";
   const keyword = ticker.toLowerCase();
   if (industryKeywords.has(keyword)) return "";
-  if (scores.some((item) => item.ticker === ticker)) return "";
-  if (!candidates.some((candidate) => candidate.ticker === ticker)) return "";
+  const alreadyLoaded = scores.some((item) => item.ticker === ticker);
+  const exactCandidate = candidates.some((candidate) => candidate.ticker === ticker);
+  if (!alreadyLoaded && !exactCandidate) return "";
   return ticker;
 }
 
@@ -164,6 +170,17 @@ function shouldIndustryLookup(value: string) {
   const keyword = value.trim().toLowerCase();
   if (!keyword || !industryKeywords.has(keyword)) return "";
   return keyword;
+}
+
+function parseTickerList(value: string) {
+  return Array.from(
+    new Set(
+      value
+        .split(/[\s,，;；]+/)
+        .map((part) => part.trim().toUpperCase())
+        .filter((part) => tickerPattern.test(part))
+    )
+  );
 }
 
 export default function App() {
@@ -179,6 +196,7 @@ export default function App() {
   const [searchCandidates, setSearchCandidates] = useState<SearchCandidate[]>([]);
   const [candidateStatus, setCandidateStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [loadedIndustryKey, setLoadedIndustryKey] = useState("");
+  const [compareTickers, setCompareTickers] = useState<string[]>([]);
 
   useEffect(() => {
     let alive = true;
@@ -217,6 +235,9 @@ export default function App() {
   const normalizedTickerQuery = useMemo(() => {
     return shouldLiveLookup(query, snapshot.scores, searchCandidates);
   }, [query, searchCandidates, snapshot.scores]);
+
+  const compareSet = useMemo(() => new Set(compareTickers), [compareTickers]);
+  const comparisonMode = compareTickers.length > 0;
 
   useEffect(() => {
     const value = query.trim();
@@ -265,7 +286,14 @@ export default function App() {
     if (alreadyLoaded) {
       setLookupTicker(normalizedTickerQuery);
       setLookupStatus("done");
-      setLookupMessage("");
+      setCompareTickers((current) => {
+        if (current.includes(normalizedTickerQuery)) return current;
+        return [...current, normalizedTickerQuery].slice(0, maxCompareTickers);
+      });
+      setSelectedTicker(normalizedTickerQuery);
+      setQuery("");
+      setSearchCandidates([]);
+      setLookupMessage(`${normalizedTickerQuery} 已加入对比`);
       return;
     }
 
@@ -299,9 +327,15 @@ export default function App() {
           setLoadedIndustryKey("");
           setIndustry("All");
           setSelectedTicker(score.ticker);
+          setCompareTickers((current) => {
+            if (current.includes(score.ticker)) return current;
+            return [...current, score.ticker].slice(0, maxCompareTickers);
+          });
           setUsingFallback(false);
+          setQuery("");
+          setSearchCandidates([]);
           setLookupStatus("done");
-          setLookupMessage(`${score.ticker} 已加入实时股票池`);
+          setLookupMessage(`${score.ticker} 已加入对比`);
         })
         .catch((error) => {
           if (controller.signal.aborted) return;
@@ -372,14 +406,21 @@ export default function App() {
     const value = query.trim();
     if (!value) return "";
     if (normalizedIndustryQuery) return `${value} 识别为行业关键词，正在使用服务端行业股票池。`;
+    const parsedTickers = parseTickerList(value);
+    const hasSeparator = /[\s,，;；]/.test(value);
+    const exactTicker = parsedTickers.length === 1 && (snapshot.scores.some((item) => item.ticker === parsedTickers[0]) || searchCandidates.some((candidate) => candidate.ticker === parsedTickers[0]));
+    if ((hasSeparator && parsedTickers.length) || exactTicker) return `识别到 ${parsedTickers.length} 个 ticker，按 Enter 或 + 加入对比。`;
     if (candidateStatus === "loading") return "正在匹配公司名和代码。";
     const count = localStockMatches.length + remoteCandidates.length;
-    if (count > 0) return `匹配到 ${count} 个候选。`;
+    if (count > 0) return `匹配到 ${count} 个候选，点击加入对比。`;
     if (candidateStatus === "error") return "候选搜索暂不可用。";
     return "没有匹配的公司名或代码。";
-  }, [candidateStatus, localStockMatches.length, normalizedIndustryQuery, query, remoteCandidates.length]);
+  }, [candidateStatus, localStockMatches.length, normalizedIndustryQuery, query, remoteCandidates.length, searchCandidates, snapshot.scores]);
 
   const filtered = useMemo(() => {
+    if (comparisonMode) {
+      return sortedScores.filter((item) => compareSet.has(item.ticker) && item.totalScore >= minScore);
+    }
     const needle = query.trim().toLowerCase();
     const isIndustrySearchResult = Boolean(normalizedIndustryQuery && loadedIndustryKey === normalizedIndustryQuery);
     const selectedIndustryKey = templateSearchKey[industry] || "";
@@ -393,13 +434,14 @@ export default function App() {
       const matchesIndustry = industry === "All" || isSelectedIndustryUniverse || item.template === industry;
       return matchesText && matchesIndustry && item.totalScore >= minScore;
     });
-  }, [industry, loadedIndustryKey, minScore, normalizedIndustryQuery, query, sortedScores]);
+  }, [compareSet, comparisonMode, industry, loadedIndustryKey, minScore, normalizedIndustryQuery, query, sortedScores]);
 
   const featured = useMemo(() => {
+    if (comparisonMode) return filtered.slice(0, 5);
     const set = new Set(snapshot.featuredTickers);
     const items = snapshot.scores.filter((item) => set.has(item.ticker));
     return items.length ? items : sortedScores.slice(0, 5);
-  }, [snapshot.featuredTickers, snapshot.scores, sortedScores]);
+  }, [comparisonMode, filtered, snapshot.featuredTickers, snapshot.scores, sortedScores]);
 
   const selected = useMemo(
     () => sortedScores.find((item) => item.ticker === selectedTicker) || filtered[0] || sortedScores[0],
@@ -427,14 +469,79 @@ export default function App() {
   );
 
   const summary = useMemo(() => {
-    const high = sortedScores.filter((item) => item.totalScore >= 25).length;
-    const avg = sortedScores.reduce((sum, item) => sum + item.totalScore, 0) / Math.max(sortedScores.length, 1);
-    const templates = new Set(sortedScores.map((item) => item.template)).size;
+    const source = comparisonMode ? filtered : sortedScores;
+    const high = source.filter((item) => item.totalScore >= 25).length;
+    const avg = source.reduce((sum, item) => sum + item.totalScore, 0) / Math.max(source.length, 1);
+    const templates = new Set(source.map((item) => item.template)).size;
     return { high, avg, templates };
-  }, [sortedScores]);
+  }, [comparisonMode, filtered, sortedScores]);
 
   const yahooLookupTicker = normalizedTickerQuery || localStockMatches[0]?.ticker || remoteCandidates[0]?.ticker || selected?.ticker || "MSFT";
   const customYahoo = yahooUrl(yahooLookupTicker);
+  const addTickersToCompare = async (tickers: string[]) => {
+    const requested = Array.from(new Set(tickers.map((ticker) => ticker.trim().toUpperCase()).filter((ticker) => tickerPattern.test(ticker)))).slice(0, maxCompareTickers);
+    if (!requested.length) {
+      setLookupStatus("error");
+      setLookupMessage("请输入股票代码，或从候选中选择公司。");
+      return;
+    }
+
+    const knownTickers = new Set(snapshot.scores.map((item) => item.ticker));
+    const known = requested.filter((ticker) => knownTickers.has(ticker));
+    const missing = requested.filter((ticker) => !knownTickers.has(ticker));
+    let added = [...known];
+    let rejected: string[] = [];
+
+    if (missing.length) {
+      setLookupTicker(missing.join(", "));
+      setLookupStatus("loading");
+      setLookupMessage(`正在实时计算 ${missing.join(", ")}`);
+      try {
+        const response = await fetch(`${apiBase}/api/snapshot?tickers=${encodeURIComponent(missing.join(","))}`);
+        if (!response.ok) throw new Error("lookup unavailable");
+        const data: Snapshot = await response.json();
+        const validScores = (data.scores || []).filter((score) => score.totalScore > 0);
+        rejected = missing.filter((ticker) => !validScores.some((score) => score.ticker === ticker));
+        if (validScores.length) {
+          setSnapshot((current) => {
+            const incoming = new Map(validScores.map((score) => [score.ticker, score]));
+            const existing = current.scores.filter((item) => !incoming.has(item.ticker));
+            return {
+              ...current,
+              generatedAt: data.generatedAt || current.generatedAt,
+              cadence: data.cadence || current.cadence,
+              source: data.source || current.source,
+              scores: [...validScores, ...existing]
+            };
+          });
+          added = [...added, ...validScores.map((score) => score.ticker)];
+          setUsingFallback(false);
+          setLoadedIndustryKey("");
+          setIndustry("All");
+        }
+      } catch (error) {
+        setLookupStatus("error");
+        setLookupMessage(error instanceof Error ? error.message : "实时计算失败");
+        return;
+      }
+    }
+
+    if (!added.length) {
+      setLookupStatus("error");
+      setLookupMessage(rejected.length ? `未找到 ${rejected.join(", ")}` : "没有可加入的股票。");
+      return;
+    }
+
+    setCompareTickers((current) => Array.from(new Set([...current, ...added])).slice(0, maxCompareTickers));
+    setSelectedTicker(added[0]);
+    setQuery("");
+    setSearchCandidates([]);
+    setCandidateStatus("idle");
+    setLookupTicker("");
+    setLookupStatus("done");
+    setLookupMessage(rejected.length ? `已加入 ${added.join(", ")}；未找到 ${rejected.join(", ")}` : `已加入 ${added.join(", ")} 对比`);
+  };
+
   const handleSearchChange = (value: string) => {
     setQuery(value);
     if (value.trim()) setIndustry("All");
@@ -445,13 +552,31 @@ export default function App() {
       setQuery("");
       setSearchCandidates([]);
       setCandidateStatus("idle");
+      setCompareTickers([]);
     }
   };
+  const handleAddCurrentInput = () => {
+    const raw = query.trim();
+    const hasSeparator = /[\s,，;；]/.test(raw);
+    const parsed = parseTickerList(raw);
+    const exactParsed = hasSeparator
+      ? parsed
+      : parsed.filter((ticker) => snapshot.scores.some((item) => item.ticker === ticker) || searchCandidates.some((candidate) => candidate.ticker === ticker));
+    const fallbackTicker = localStockMatches[0]?.ticker || remoteCandidates[0]?.ticker || "";
+    const tickers = exactParsed.length ? exactParsed : fallbackTicker ? [fallbackTicker] : [];
+    void addTickersToCompare(tickers);
+  };
   const handleCandidatePick = (ticker: string) => {
-    setQuery(ticker);
-    setIndustry("All");
-    const loaded = snapshot.scores.find((item) => item.ticker === ticker);
-    if (loaded) setSelectedTicker(loaded.ticker);
+    void addTickersToCompare([ticker]);
+  };
+  const handleRemoveCompareTicker = (ticker: string) => {
+    const next = compareTickers.filter((item) => item !== ticker);
+    setCompareTickers(next);
+    if (selectedTicker === ticker) setSelectedTicker(next[0] || filtered[0]?.ticker || sortedScores[0]?.ticker || fallbackSnapshot.featuredTickers[0]);
+  };
+  const handleClearCompare = () => {
+    setCompareTickers([]);
+    setLookupMessage("");
   };
 
   return (
@@ -468,15 +593,21 @@ export default function App() {
         </div>
 
         <section className="control-group">
-          <label htmlFor="search">股票 / 行业搜索</label>
+          <label htmlFor="search">股票搜索 / 加入对比</label>
           <div className="input-row">
             <Search size={18} />
             <input
               id="search"
               value={query}
-              placeholder="代码或公司名"
+              placeholder="MSFT, ADBE, TSLA 或公司名"
               onChange={(event) => handleSearchChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") handleAddCurrentInput();
+              }}
             />
+            <button className="input-action" type="button" onClick={handleAddCurrentInput} aria-label="加入对比">
+              <Plus size={16} />
+            </button>
           </div>
           {searchHint ? <p className="search-hint">{searchHint}</p> : null}
           {localStockMatches.length || remoteCandidates.length ? (
@@ -485,14 +616,14 @@ export default function App() {
                 <button key={`local-${item.ticker}`} className="suggestion-button" onClick={() => handleCandidatePick(item.ticker)}>
                   <strong>{item.ticker}</strong>
                   <span>{item.name}</span>
-                  <small>{item.totalScore}/30</small>
+                  <small>加入</small>
                 </button>
               ))}
               {remoteCandidates.map((candidate) => (
                 <button key={`remote-${candidate.ticker}`} className="suggestion-button" onClick={() => handleCandidatePick(candidate.ticker)}>
                   <strong>{candidate.ticker}</strong>
                   <span>{candidate.name}</span>
-                  <small>{candidate.exchange || "SEC"}</small>
+                  <small>加入</small>
                 </button>
               ))}
             </div>
@@ -504,6 +635,33 @@ export default function App() {
           {lookupMessage ? (
             <p className={`lookup-message ${lookupStatus}`}>{lookupMessage}</p>
           ) : null}
+        </section>
+
+        <section className="control-group compare-group">
+          <div className="compare-head">
+            <label>对比池</label>
+            {compareTickers.length ? (
+              <button type="button" onClick={handleClearCompare}>
+                清空
+              </button>
+            ) : null}
+          </div>
+          {compareTickers.length ? (
+            <div className="compare-chips" aria-label="已加入对比的股票">
+              {compareTickers.map((ticker) => (
+                <span className={`compare-chip ${selectedTicker === ticker ? "active" : ""}`} key={ticker}>
+                  <button type="button" onClick={() => setSelectedTicker(ticker)}>
+                    {ticker}
+                  </button>
+                  <button type="button" onClick={() => handleRemoveCompareTicker(ticker)} aria-label={`移除 ${ticker}`}>
+                    <X size={13} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="compare-empty">输入多个 ticker 后按 Enter，或点击候选加入。</p>
+          )}
         </section>
 
         <section className="control-group">
@@ -550,7 +708,7 @@ export default function App() {
         <header className="topbar">
           <div>
             <p className="eyebrow">{snapshot.cadence === "live" ? "实时快照" : "本地快照"} · {fmtDate(snapshot.generatedAt)}</p>
-            <h2>行业化质量价值筛选</h2>
+            <h2>{comparisonMode ? "多股票质量价值对比" : "行业化质量价值筛选"}</h2>
           </div>
           <div className="source-pill">
             <ChartLine size={16} />
@@ -592,8 +750,8 @@ export default function App() {
           >
             <div className="panel-head">
               <div>
-                <p className="eyebrow">Top Screen</p>
-                <h3>筛选结果排行</h3>
+                <p className="eyebrow">{comparisonMode ? "Compare" : "Top Screen"}</p>
+                <h3>{comparisonMode ? "对比结果排行" : "筛选结果排行"}</h3>
               </div>
               <span>{filtered.length} 支</span>
             </div>
@@ -621,7 +779,11 @@ export default function App() {
                 </ResponsiveContainer>
               ) : (
                 <div className="empty-state">
-                  {lookupStatus === "loading" && lookupTicker ? `${lookupTicker} 实时查询中` : "没有匹配结果"}
+                  {lookupStatus === "loading" && lookupTicker
+                    ? `${lookupTicker} 实时查询中`
+                    : comparisonMode
+                      ? "对比股票低于当前最低总分"
+                      : "没有匹配结果"}
                 </div>
               )}
             </div>
@@ -656,8 +818,8 @@ export default function App() {
         <section className="table-section">
           <div className="panel-head table-head">
             <div>
-              <p className="eyebrow">Universe</p>
-              <h3>可搜索股票池</h3>
+              <p className="eyebrow">{comparisonMode ? "Compare Set" : "Universe"}</p>
+              <h3>{comparisonMode ? "对比股票池" : "可搜索股票池"}</h3>
             </div>
             <div className="metrics-row">
               <span>{summary.high} 支高质量候选</span>
@@ -704,7 +866,9 @@ export default function App() {
               <div className="score-empty">
                 {lookupStatus === "loading" && lookupTicker
                   ? `正在从服务端计算 ${lookupTicker} 的六维评分`
-                  : "当前筛选条件下没有结果。输入具体 ticker 时会自动实时查询。"}
+                  : comparisonMode
+                    ? "当前最低总分隐藏了对比股票；降低分数阈值即可显示。"
+                    : "当前筛选条件下没有结果。输入 ticker 或公司名后加入对比。"}
               </div>
             ) : null}
           </div>

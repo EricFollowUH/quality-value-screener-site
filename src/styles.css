@@ -157,6 +157,23 @@ h3 {
   appearance: none;
 }
 
+.input-action {
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  color: #fff;
+  background: #17202a;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.input-action:hover {
+  background: #405de6;
+}
+
 .text-link,
 .detail-actions a,
 .external-cell a {
@@ -226,6 +243,84 @@ h3 {
   font-size: 11px;
   font-weight: 850;
   white-space: nowrap;
+}
+
+.compare-group {
+  padding: 14px 0 4px;
+  border-top: 1px solid #dce2d5;
+  border-bottom: 1px solid #dce2d5;
+}
+
+.compare-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 9px;
+}
+
+.compare-head label {
+  margin-bottom: 0;
+}
+
+.compare-head button {
+  padding: 0;
+  color: #405de6;
+  background: transparent;
+  border: 0;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.compare-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.compare-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 28px;
+  overflow: hidden;
+  background: #edf1e8;
+  border: 1px solid #dce2d5;
+  border-radius: 8px;
+}
+
+.compare-chip.active {
+  border-color: #405de6;
+  background: #eef2ff;
+}
+
+.compare-chip button {
+  display: inline-grid;
+  min-height: 26px;
+  place-items: center;
+  color: #17202a;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.compare-chip button:first-child {
+  padding: 0 6px 0 9px;
+}
+
+.compare-chip button:last-child {
+  width: 24px;
+  color: #66706a;
+}
+
+.compare-empty {
+  margin: 0;
+  color: #66706a;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
 }
 
 .lookup-message {
