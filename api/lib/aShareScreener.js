@@ -302,7 +302,7 @@ async function buildAShareSnapshot({ tickers = [], q = "" } = {}) {
   return {
     generatedAt: new Date().toISOString(),
     cadence: "live",
-    source: "A股服务端实时行情：东方财富公开报价 + 本地周度财务快照。",
+    source: "A股服务端实时行情：东方财富/新浪公开行情 + 本地周度财务快照。",
     featuredTickers: A_SHARE_FEATURED_TICKERS,
     scores
   };

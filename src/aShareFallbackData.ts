@@ -32,7 +32,7 @@ const score = (
 export const aShareFallbackSnapshot: Snapshot = {
   generatedAt: "2026-06-05T00:00:00.000Z",
   cadence: "weekly",
-  source: "A股本地周度兜底快照；服务端优先使用东方财富公开行情。",
+  source: "A股本地周度兜底快照；服务端优先使用东方财富/新浪公开行情。",
   featuredTickers: ["600519", "300750", "000333", "600036", "002594"],
   scores: [
     score("600519", "贵州茅台", "消费", "白酒", "白酒 / 高端消费", 1272.86, { growth: 4, quality: 5, cashFlow: 5, valuation: 4, risk: 5, sustainability: 5 }, {
