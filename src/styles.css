@@ -68,7 +68,7 @@ a {
   display: flex;
   gap: 14px;
   align-items: center;
-  margin-bottom: 32px;
+  margin-bottom: 18px;
 }
 
 .brand-mark {
@@ -118,6 +118,34 @@ h3 {
 
 .control-group {
   margin: 0 0 24px;
+}
+
+.market-switch {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+  margin-bottom: 26px;
+  padding: 4px;
+  background: #edf1e8;
+  border: 1px solid #dce2d5;
+  border-radius: 8px;
+}
+
+.market-switch button {
+  min-height: 34px;
+  color: #53605a;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.market-switch button.active {
+  color: #17202a;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(23, 32, 42, 0.08);
 }
 
 .control-group label,

@@ -29,8 +29,11 @@ import {
   XAxis,
   YAxis
 } from "recharts";
+import { aShareFallbackSnapshot } from "./aShareFallbackData";
 import { fallbackSnapshot } from "./fallbackData";
 import type { ScoreDimension, Snapshot, StockScore } from "./types";
+
+type Market = "us" | "cn";
 
 type SearchCandidate = {
   ticker: string;
@@ -62,6 +65,38 @@ function resolveApiBase() {
 
 const apiBase = resolveApiBase();
 
+const marketCopy: Record<Market, {
+  label: string;
+  title: string;
+  compareTitle: string;
+  searchLabel: string;
+  searchPlaceholder: string;
+  externalSearchLabel: string;
+  primaryDataLabel: string;
+  filingLabel: string;
+}> = {
+  us: {
+    label: "美股",
+    title: "行业化质量价值筛选",
+    compareTitle: "多股票质量价值对比",
+    searchLabel: "股票搜索 / 加入对比",
+    searchPlaceholder: "MSFT, ADBE, TSLA 或公司名",
+    externalSearchLabel: "打开 Yahoo 查询候选标的",
+    primaryDataLabel: "Yahoo Finance",
+    filingLabel: "SEC Search"
+  },
+  cn: {
+    label: "A股",
+    title: "A股质量价值筛选",
+    compareTitle: "A股多标的质量价值对比",
+    searchLabel: "A股搜索 / 加入对比",
+    searchPlaceholder: "600519, 宁德时代, 银行",
+    externalSearchLabel: "打开东方财富查询候选标的",
+    primaryDataLabel: "东方财富",
+    filingLabel: "巨潮资讯"
+  }
+};
+
 const industryKeywords = new Set([
   "ai",
   "bank",
@@ -90,6 +125,25 @@ const industryKeywords = new Set([
   "utilities"
 ]);
 
+[
+  "a股",
+  "白酒",
+  "消费",
+  "新能源",
+  "电池",
+  "银行",
+  "保险",
+  "医药",
+  "医疗",
+  "半导体",
+  "芯片",
+  "制造",
+  "公用",
+  "电力",
+  "券商",
+  "金融"
+].forEach((keyword) => industryKeywords.add(keyword));
+
 const templateSearchKey: Record<string, string> = {
   "AI / cloud / platform technology": "ai",
   "Banks": "banks",
@@ -105,6 +159,21 @@ const templateSearchKey: Record<string, string> = {
   "SaaS / enterprise software": "saas",
   "Semiconductors / chip design": "semiconductor",
   "Utilities": "utilities"
+};
+
+const aShareTemplateSearchKey: Record<string, string> = {
+  "白酒 / 高端消费": "白酒",
+  "新能源 / 电池": "新能源",
+  "先进制造 / 消费制造": "制造",
+  "银行": "银行",
+  "保险": "保险",
+  "医药医疗": "医药",
+  "半导体 / 硬科技": "半导体",
+  "软件 / 云服务": "软件",
+  "电力 / 公用事业": "电力",
+  "券商 / 金融服务": "券商",
+  "工程机械 / 工业制造": "制造",
+  "周期资源 / 化工": "周期资源"
 };
 
 const industryOptions = [
@@ -123,6 +192,23 @@ const industryOptions = [
   "Consumer brands / staples",
   "Industrials / manufacturing",
   "Utilities",
+  "General quality/value"
+];
+
+const aShareIndustryOptions = [
+  "All",
+  "白酒 / 高端消费",
+  "新能源 / 电池",
+  "先进制造 / 消费制造",
+  "银行",
+  "保险",
+  "医药医疗",
+  "半导体 / 硬科技",
+  "软件 / 云服务",
+  "电力 / 公用事业",
+  "券商 / 金融服务",
+  "工程机械 / 工业制造",
+  "周期资源 / 化工",
   "General quality/value"
 ];
 
@@ -175,6 +261,26 @@ const modelTierRows = [
 ];
 
 const companyBriefs: Record<string, CompanyBrief> = {
+  "000333": {
+    business: "家电和智能制造龙头，覆盖空调、厨电、机器人、工业自动化和海外业务。",
+    outlook: "来自海外扩张、利润率修复、B 端工业技术和稳健分红，但需关注地产链需求。"
+  },
+  "002594": {
+    business: "新能源汽车、电池和电子业务公司，垂直整合能力较强。",
+    outlook: "取决于销量增长、毛利率修复、海外扩张和价格竞争缓和。"
+  },
+  "300750": {
+    business: "动力电池和储能电池龙头，客户覆盖全球新能源车和储能市场。",
+    outlook: "取决于全球电动车渗透、储能需求、材料价格和电池技术路线竞争。"
+  },
+  "600036": {
+    business: "股份制商业银行龙头，优势在零售金融、财富管理和资产质量控制。",
+    outlook: "取决于净息差、信贷质量、财富管理恢复和分红稳定性。"
+  },
+  "600519": {
+    business: "高端白酒龙头，核心资产是茅台品牌、渠道控制和稀缺供给。",
+    outlook: "取决于高端消费需求、渠道价格稳定、分红回报和估值安全边际。"
+  },
   ADBE: {
     business: "数字创意和文档软件公司，核心产品覆盖 Creative Cloud、Document Cloud 和企业数字体验。",
     outlook: "增长取决于 AI 创作工具、订阅提价能力和企业营销云需求能否抵消成熟软件增速放缓。"
@@ -282,7 +388,8 @@ const companyBriefs: Record<string, CompanyBrief> = {
 };
 
 const maxCompareTickers = 12;
-const tickerPattern = /^[A-Z][A-Z0-9.-]{0,9}$/;
+const usTickerPattern = /^[A-Z][A-Z0-9.-]{0,9}$/;
+const aShareTickerPattern = /^(00|30|60|68)\d{4}$/;
 
 function tier(score: number) {
   if (score >= 25) return { label: "高质量候选", className: "tier-high" };
@@ -291,9 +398,10 @@ function tier(score: number) {
   return { label: "低优先级", className: "tier-low" };
 }
 
-function fmtPrice(value: number | null) {
+function fmtPrice(value: number | null, market: Market) {
   if (value == null) return "n/a";
-  return `$${value.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+  const prefix = market === "cn" ? "¥" : "$";
+  return `${prefix}${value.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 }
 
 function fmtDate(iso: string) {
@@ -472,19 +580,67 @@ function secUrl(ticker: string) {
   return `https://www.sec.gov/edgar/search/#/q=${encodeURIComponent(ticker)}`;
 }
 
+function eastMoneyUrl(ticker: string) {
+  const prefix = ticker.startsWith("6") ? "sh" : "sz";
+  return `https://quote.eastmoney.com/${prefix}${encodeURIComponent(ticker)}.html`;
+}
+
+function cninfoUrl(ticker: string, name?: string) {
+  const keyword = name ? `${ticker} ${name}` : ticker;
+  return `https://www.cninfo.com.cn/new/fulltextSearch?notautosubmit=&keyWord=${encodeURIComponent(keyword)}`;
+}
+
+function fallbackSnapshotForMarket(market: Market) {
+  return market === "cn" ? aShareFallbackSnapshot : fallbackSnapshot;
+}
+
+function snapshotEndpoint(market: Market) {
+  return market === "cn" ? "/api/ashare-snapshot" : "/api/snapshot";
+}
+
+function searchEndpoint(market: Market) {
+  return market === "cn" ? "/api/ashare-search" : "/api/search";
+}
+
+function industryOptionsForMarket(market: Market) {
+  return market === "cn" ? aShareIndustryOptions : industryOptions;
+}
+
+function templateSearchKeyForMarket(market: Market) {
+  return market === "cn" ? aShareTemplateSearchKey : templateSearchKey;
+}
+
+function normalizeTicker(value: string, market: Market) {
+  const ticker = value.trim().toUpperCase();
+  return market === "cn" ? ticker.replace(/\D/g, "") : ticker;
+}
+
+function isTicker(value: string, market: Market) {
+  return market === "cn" ? aShareTickerPattern.test(value) : usTickerPattern.test(value);
+}
+
+function primaryDataUrl(market: Market, ticker: string) {
+  return market === "cn" ? eastMoneyUrl(ticker) : yahooUrl(ticker);
+}
+
+function filingSearchUrl(market: Market, ticker: string, name?: string) {
+  return market === "cn" ? cninfoUrl(ticker, name) : secUrl(ticker);
+}
+
 function sourceText(snapshot: Snapshot, usingFallback: boolean) {
   return usingFallback
     ? "本地兜底快照；等待服务端实时数据"
     : snapshot.source;
 }
 
-function shouldLiveLookup(value: string, scores: StockScore[], candidates: SearchCandidate[]) {
-  const ticker = value.trim().toUpperCase();
-  if (!tickerPattern.test(ticker)) return "";
+function shouldLiveLookup(value: string, scores: StockScore[], candidates: SearchCandidate[], market: Market) {
+  const ticker = normalizeTicker(value, market);
+  if (!isTicker(ticker, market)) return "";
   const keyword = ticker.toLowerCase();
-  if (industryKeywords.has(keyword)) return "";
+  if (market === "us" && industryKeywords.has(keyword)) return "";
   const alreadyLoaded = scores.some((item) => item.ticker === ticker);
   const exactCandidate = candidates.some((candidate) => candidate.ticker === ticker);
+  if (market === "cn") return ticker;
   if (!alreadyLoaded && !exactCandidate) return "";
   return ticker;
 }
@@ -495,18 +651,19 @@ function shouldIndustryLookup(value: string) {
   return keyword;
 }
 
-function parseTickerList(value: string) {
+function parseTickerList(value: string, market: Market) {
   return Array.from(
     new Set(
       value
         .split(/[\s,，;；]+/)
-        .map((part) => part.trim().toUpperCase())
-        .filter((part) => tickerPattern.test(part))
+        .map((part) => normalizeTicker(part, market))
+        .filter((part) => isTicker(part, market))
     )
   );
 }
 
 export default function App() {
+  const [market, setMarket] = useState<Market>("us");
   const [snapshot, setSnapshot] = useState<Snapshot>(fallbackSnapshot);
   const [usingFallback, setUsingFallback] = useState(true);
   const [query, setQuery] = useState("");
@@ -524,7 +681,22 @@ export default function App() {
 
   useEffect(() => {
     let alive = true;
-    fetch(`${apiBase}/api/snapshot`)
+    const fallback = fallbackSnapshotForMarket(market);
+    setSnapshot(fallback);
+    setUsingFallback(true);
+    setQuery("");
+    setIndustry("All");
+    setSelectedTicker(fallback.featuredTickers[0]);
+    setMinScore(0);
+    setLookupTicker("");
+    setLookupStatus("idle");
+    setLookupMessage("");
+    setSearchCandidates([]);
+    setCandidateStatus("idle");
+    setLoadedIndustryKey("");
+    setCompareTickers([]);
+
+    fetch(`${apiBase}${snapshotEndpoint(market)}`)
       .then((response) => {
         if (!response.ok) throw new Error("snapshot unavailable");
         return response.json();
@@ -549,14 +721,16 @@ export default function App() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [market]);
 
   const normalizedIndustryQuery = useMemo(() => shouldIndustryLookup(query), [query]);
   const normalizedTemplateQuery = useMemo(() => {
     if (query.trim()) return "";
-    return templateSearchKey[industry] || "";
-  }, [industry, query]);
+    return templateSearchKeyForMarket(market)[industry] || "";
+  }, [industry, market, query]);
   const serverIndustryQuery = normalizedIndustryQuery || normalizedTemplateQuery;
+  const activeIndustryOptions = useMemo(() => industryOptionsForMarket(market), [market]);
+  const copy = marketCopy[market];
 
   const sortedScores = useMemo(
     () => [...snapshot.scores].sort((a, b) => b.totalScore - a.totalScore),
@@ -564,8 +738,8 @@ export default function App() {
   );
 
   const normalizedTickerQuery = useMemo(() => {
-    return shouldLiveLookup(query, snapshot.scores, searchCandidates);
-  }, [query, searchCandidates, snapshot.scores]);
+    return shouldLiveLookup(query, snapshot.scores, searchCandidates, market);
+  }, [market, query, searchCandidates, snapshot.scores]);
 
   const compareSet = useMemo(() => new Set(compareTickers), [compareTickers]);
   const comparisonMode = compareTickers.length > 0;
@@ -581,7 +755,7 @@ export default function App() {
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       setCandidateStatus("loading");
-      fetch(`${apiBase}/api/search?q=${encodeURIComponent(value)}`, {
+      fetch(`${apiBase}${searchEndpoint(market)}?q=${encodeURIComponent(value)}`, {
         signal: controller.signal
       })
         .then((response) => {
@@ -603,7 +777,7 @@ export default function App() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [normalizedIndustryQuery, query]);
+  }, [market, normalizedIndustryQuery, query]);
 
   useEffect(() => {
     if (!normalizedTickerQuery) {
@@ -633,7 +807,7 @@ export default function App() {
       setLookupTicker(normalizedTickerQuery);
       setLookupStatus("loading");
       setLookupMessage(`正在实时查询 ${normalizedTickerQuery}`);
-      fetch(`${apiBase}/api/snapshot?tickers=${encodeURIComponent(normalizedTickerQuery)}`, {
+      fetch(`${apiBase}${snapshotEndpoint(market)}?tickers=${encodeURIComponent(normalizedTickerQuery)}`, {
         signal: controller.signal
       })
         .then((response) => {
@@ -679,7 +853,7 @@ export default function App() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [normalizedTickerQuery, snapshot.scores]);
+  }, [market, normalizedTickerQuery, snapshot.scores]);
 
   useEffect(() => {
     if (!serverIndustryQuery) return;
@@ -689,7 +863,7 @@ export default function App() {
       setLookupTicker("");
       setLookupStatus("loading");
       setLookupMessage(`正在实时计算 ${serverIndustryQuery} 行业股票池`);
-      fetch(`${apiBase}/api/snapshot?q=${encodeURIComponent(serverIndustryQuery)}`, {
+      fetch(`${apiBase}${snapshotEndpoint(market)}?q=${encodeURIComponent(serverIndustryQuery)}`, {
         signal: controller.signal
       })
         .then((response) => {
@@ -718,7 +892,7 @@ export default function App() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [serverIndustryQuery]);
+  }, [market, serverIndustryQuery]);
 
   const localStockMatches = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -737,7 +911,7 @@ export default function App() {
     const value = query.trim();
     if (!value) return "";
     if (normalizedIndustryQuery) return `${value} 识别为行业关键词，正在使用服务端行业股票池。`;
-    const parsedTickers = parseTickerList(value);
+    const parsedTickers = parseTickerList(value, market);
     const hasSeparator = /[\s,，;；]/.test(value);
     const exactTicker = parsedTickers.length === 1 && (snapshot.scores.some((item) => item.ticker === parsedTickers[0]) || searchCandidates.some((candidate) => candidate.ticker === parsedTickers[0]));
     if ((hasSeparator && parsedTickers.length) || exactTicker) return `识别到 ${parsedTickers.length} 个 ticker，按 Enter 或 + 加入对比。`;
@@ -746,7 +920,7 @@ export default function App() {
     if (count > 0) return `匹配到 ${count} 个候选，点击加入对比。`;
     if (candidateStatus === "error") return "候选搜索暂不可用。";
     return "没有匹配的公司名或代码。";
-  }, [candidateStatus, localStockMatches.length, normalizedIndustryQuery, query, remoteCandidates.length, searchCandidates, snapshot.scores]);
+  }, [candidateStatus, localStockMatches.length, market, normalizedIndustryQuery, query, remoteCandidates.length, searchCandidates, snapshot.scores]);
 
   const filtered = useMemo(() => {
     if (comparisonMode) {
@@ -754,7 +928,7 @@ export default function App() {
     }
     const needle = query.trim().toLowerCase();
     const isIndustrySearchResult = Boolean(normalizedIndustryQuery && loadedIndustryKey === normalizedIndustryQuery);
-    const selectedIndustryKey = templateSearchKey[industry] || "";
+    const selectedIndustryKey = templateSearchKeyForMarket(market)[industry] || "";
     const isSelectedIndustryUniverse = Boolean(!needle && selectedIndustryKey && loadedIndustryKey === selectedIndustryKey);
     return sortedScores.filter((item) => {
       const matchesText =
@@ -765,7 +939,7 @@ export default function App() {
       const matchesIndustry = industry === "All" || isSelectedIndustryUniverse || item.template === industry;
       return matchesText && matchesIndustry && item.totalScore >= minScore;
     });
-  }, [compareSet, comparisonMode, industry, loadedIndustryKey, minScore, normalizedIndustryQuery, query, sortedScores]);
+  }, [compareSet, comparisonMode, industry, loadedIndustryKey, market, minScore, normalizedIndustryQuery, query, sortedScores]);
 
   const featured = useMemo(() => {
     if (comparisonMode) return filtered.slice(0, 5);
@@ -808,10 +982,10 @@ export default function App() {
     return { high, avg, templates };
   }, [comparisonMode, filtered, sortedScores]);
 
-  const yahooLookupTicker = normalizedTickerQuery || localStockMatches[0]?.ticker || remoteCandidates[0]?.ticker || selected?.ticker || "MSFT";
-  const customYahoo = yahooUrl(yahooLookupTicker);
+  const lookupCandidateTicker = normalizedTickerQuery || localStockMatches[0]?.ticker || remoteCandidates[0]?.ticker || selected?.ticker || (market === "cn" ? "600519" : "MSFT");
+  const customPrimaryUrl = primaryDataUrl(market, lookupCandidateTicker);
   const addTickersToCompare = async (tickers: string[]) => {
-    const requested = Array.from(new Set(tickers.map((ticker) => ticker.trim().toUpperCase()).filter((ticker) => tickerPattern.test(ticker)))).slice(0, maxCompareTickers);
+    const requested = Array.from(new Set(tickers.map((ticker) => normalizeTicker(ticker, market)).filter((ticker) => isTicker(ticker, market)))).slice(0, maxCompareTickers);
     if (!requested.length) {
       setLookupStatus("error");
       setLookupMessage("请输入股票代码，或从候选中选择公司。");
@@ -829,7 +1003,7 @@ export default function App() {
       setLookupStatus("loading");
       setLookupMessage(`正在实时计算 ${missing.join(", ")}`);
       try {
-        const response = await fetch(`${apiBase}/api/snapshot?tickers=${encodeURIComponent(missing.join(","))}`);
+        const response = await fetch(`${apiBase}${snapshotEndpoint(market)}?tickers=${encodeURIComponent(missing.join(","))}`);
         if (!response.ok) throw new Error("lookup unavailable");
         const data: Snapshot = await response.json();
         const validScores = (data.scores || []).filter((score) => score.totalScore > 0);
@@ -890,7 +1064,7 @@ export default function App() {
   const handleAddCurrentInput = () => {
     const raw = query.trim();
     const hasSeparator = /[\s,，;；]/.test(raw);
-    const parsed = parseTickerList(raw);
+    const parsed = parseTickerList(raw, market);
     const exactParsed = hasSeparator
       ? parsed
       : parsed.filter((ticker) => snapshot.scores.some((item) => item.ticker === ticker) || searchCandidates.some((candidate) => candidate.ticker === ticker));
@@ -924,14 +1098,27 @@ export default function App() {
           </div>
         </div>
 
+        <section className="market-switch" aria-label="市场切换">
+          {(["us", "cn"] as Market[]).map((item) => (
+            <button
+              key={item}
+              type="button"
+              className={market === item ? "active" : ""}
+              onClick={() => setMarket(item)}
+            >
+              {marketCopy[item].label}
+            </button>
+          ))}
+        </section>
+
         <section className="control-group">
-          <label htmlFor="search">股票搜索 / 加入对比</label>
+          <label htmlFor="search">{copy.searchLabel}</label>
           <div className="input-row">
             <Search size={18} />
             <input
               id="search"
               value={query}
-              placeholder="MSFT, ADBE, TSLA 或公司名"
+              placeholder={copy.searchPlaceholder}
               onChange={(event) => handleSearchChange(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter") handleAddCurrentInput();
@@ -960,9 +1147,9 @@ export default function App() {
               ))}
             </div>
           ) : null}
-          <a className="text-link" href={customYahoo} target="_blank" rel="noreferrer">
+          <a className="text-link" href={customPrimaryUrl} target="_blank" rel="noreferrer">
             <ExternalLink size={15} />
-            打开 Yahoo 查询候选标的
+            {copy.externalSearchLabel}
           </a>
           {lookupMessage ? (
             <p className={`lookup-message ${lookupStatus}`}>{lookupMessage}</p>
@@ -1001,7 +1188,7 @@ export default function App() {
           <div className="select-row">
             <Filter size={17} />
             <select id="industry" value={industry} onChange={(event) => handleIndustryChange(event.target.value)}>
-              {industryOptions.map((item) => (
+              {activeIndustryOptions.map((item) => (
                 <option key={item} value={item}>
                   {item === "All" ? "全部行业模板" : item}
                 </option>
@@ -1044,7 +1231,7 @@ export default function App() {
         <header className="topbar">
           <div>
             <p className="eyebrow">{snapshot.cadence === "live" ? "实时快照" : "本地快照"} · {fmtDate(snapshot.generatedAt)}</p>
-            <h2>{comparisonMode ? "多股票质量价值对比" : "行业化质量价值筛选"}</h2>
+            <h2>{comparisonMode ? copy.compareTitle : copy.title}</h2>
           </div>
           <div className="source-pill">
             <ChartLine size={16} />
@@ -1136,7 +1323,7 @@ export default function App() {
                 <p className="eyebrow">Selected</p>
                 <h3>{selected?.ticker} 六维画像</h3>
               </div>
-              <span>{fmtPrice(selected?.currentPrice ?? null)}</span>
+              <span>{fmtPrice(selected?.currentPrice ?? null, market)}</span>
             </div>
             <div className="radar-chart">
               <ResponsiveContainer width="100%" height="100%">
@@ -1191,8 +1378,8 @@ export default function App() {
                     ))}
                   </span>
                   <span className="external-cell">
-                    <a href={yahooUrl(item.ticker)} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>
-                      Yahoo <ArrowUpRight size={14} />
+                    <a href={primaryDataUrl(market, item.ticker)} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>
+                      {copy.primaryDataLabel} <ArrowUpRight size={14} />
                     </a>
                   </span>
                 </button>
@@ -1224,11 +1411,11 @@ export default function App() {
             </div>
 
             <div className="detail-actions">
-              <a href={yahooUrl(selected.ticker)} target="_blank" rel="noreferrer">
-                Yahoo Finance <ExternalLink size={15} />
+              <a href={primaryDataUrl(market, selected.ticker)} target="_blank" rel="noreferrer">
+                {copy.primaryDataLabel} <ExternalLink size={15} />
               </a>
-              <a href={secUrl(selected.ticker)} target="_blank" rel="noreferrer">
-                SEC Search <ExternalLink size={15} />
+              <a href={filingSearchUrl(market, selected.ticker, selected.name)} target="_blank" rel="noreferrer">
+                {copy.filingLabel} <ExternalLink size={15} />
               </a>
             </div>
 
@@ -1381,7 +1568,7 @@ export default function App() {
               <section>
                 <h3>数据与边界</h3>
                 <p>
-                  服务端优先使用 SEC fundamentals 与公开市场价格生成实时快照；若服务端不可用，页面使用本地周度兜底快照。所有结果都是公开数据研究排序，
+                  美股服务端优先使用 SEC fundamentals 与公开市场价格；A 股服务端优先使用东方财富公开行情，并叠加本地周度财务快照。若服务端不可用，页面使用本地兜底快照。所有结果都是公开数据研究排序，
                   不构成个性化投资、税务或交易建议。
                 </p>
                 <p>
