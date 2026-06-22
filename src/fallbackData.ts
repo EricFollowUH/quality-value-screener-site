@@ -28,6 +28,7 @@ const stock = (
     industry,
     template,
     currentPrice,
+    quoteAsOf: "2026-06-03T15:19:34Z",
     totalScore: growth + quality + cashFlow + valuation + risk + sustainability,
     growth,
     quality,

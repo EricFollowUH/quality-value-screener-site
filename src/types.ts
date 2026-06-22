@@ -13,6 +13,7 @@ export type StockScore = {
   industry: string;
   template: string;
   currentPrice: number | null;
+  quoteAsOf?: string | null;
   totalScore: number;
   growth: number;
   quality: number;

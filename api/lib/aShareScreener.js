@@ -79,8 +79,14 @@ function parseEastmoneyNumber(value, divisor = 1) {
   return Number(value) / divisor;
 }
 
+function timestampToIso(value) {
+  if (value == null || value === "-" || Number.isNaN(Number(value))) return null;
+  const date = new Date(Number(value) * 1000);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
 async function fetchEastmoneyQuote(ticker) {
-  const fields = "f57,f58,f43,f60,f116,f117,f162,f167,f170";
+  const fields = "f57,f58,f43,f60,f86,f116,f117,f162,f167,f170";
   const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid(ticker)}&fields=${fields}`;
   const response = await fetch(url, {
     headers: {
@@ -93,11 +99,12 @@ async function fetchEastmoneyQuote(ticker) {
   const data = payload?.data || {};
   return {
     currentPrice: parseEastmoneyNumber(data.f43, 100),
+    quoteAsOf: timestampToIso(data.f86),
     previousClose: parseEastmoneyNumber(data.f60, 100),
     marketCap: parseEastmoneyNumber(data.f116),
     trailingPE: parseEastmoneyNumber(data.f162, 100),
     priceToBook: parseEastmoneyNumber(data.f167, 100),
-    percentChange: parseEastmoneyNumber(data.f170, 100)
+    percentChange: parseEastmoneyNumber(data.f170, 10000)
   };
 }
 
@@ -119,8 +126,12 @@ async function fetchSinaQuote(ticker) {
   const parts = match?.[1]?.split(",") || [];
   const previousClose = Number(parts[2]);
   const currentPrice = Number(parts[3]);
+  const tradeDate = parts[30];
+  const tradeTime = parts[31];
+  const quoteDate = tradeDate && tradeTime ? new Date(`${tradeDate}T${tradeTime}+08:00`) : null;
   return {
     currentPrice: Number.isFinite(currentPrice) ? currentPrice : null,
+    quoteAsOf: quoteDate && !Number.isNaN(quoteDate.getTime()) ? quoteDate.toISOString() : null,
     previousClose: Number.isFinite(previousClose) ? previousClose : null,
     marketCap: null,
     trailingPE: null,
@@ -219,6 +230,8 @@ function scoreCompany(item, quote = {}) {
   metrics.marketCap = quote.marketCap || metrics.marketCap || null;
   metrics.trailingPE = quote.trailingPE || metrics.trailingPE || null;
   metrics.priceToBook = quote.priceToBook || metrics.priceToBook || null;
+  metrics.previousClose = quote.previousClose || null;
+  metrics.percentChange = quote.percentChange || null;
   metrics.freeCashflow = metrics.fcfMargin != null && metrics.totalRevenue ? metrics.fcfMargin * metrics.totalRevenue : null;
   metrics.operatingCashflow = metrics.ocfToProfit && metrics.freeCashflow ? metrics.freeCashflow / metrics.ocfToProfit : null;
 
@@ -236,6 +249,7 @@ function scoreCompany(item, quote = {}) {
     industry: item.industry,
     template: item.template,
     currentPrice: quote.currentPrice || null,
+    quoteAsOf: quote.quoteAsOf || null,
     totalScore: growth + quality + cashFlow + valuation + risk + sustainability,
     growth,
     quality,

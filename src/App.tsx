@@ -404,19 +404,54 @@ function fmtPrice(value: number | null, market: Market) {
   return `${prefix}${value.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 }
 
-function fmtDate(iso: string) {
+function fmtDateTime(iso: string | null | undefined, timeZone?: string) {
+  if (!iso) return "暂无时间";
   const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "本周快照";
+  if (Number.isNaN(date.getTime())) return "暂无时间";
   return new Intl.DateTimeFormat("zh-CN", {
     year: "numeric",
     month: "2-digit",
-    day: "2-digit"
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    timeZone,
+    timeZoneName: "short"
+  }).format(date);
+}
+
+function fmtMarketTime(iso: string | null | undefined, market: Market) {
+  return fmtDateTime(iso, market === "cn" ? "Asia/Shanghai" : "America/New_York");
+}
+
+function fmtShortMarketTime(iso: string | null | undefined, market: Market) {
+  if (!iso) return "时间暂无";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "时间暂无";
+  return new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: market === "cn" ? "Asia/Shanghai" : "America/New_York",
+    timeZoneName: "short"
   }).format(date);
 }
 
 function fmtPctMetric(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return "暂无";
   return `${(value * 100).toFixed(1)}%`;
+}
+
+function fmtPriceChange(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "涨跌暂无";
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${(value * 100).toFixed(2)}%`;
+}
+
+function priceChangeClass(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value) || value === 0) return "neutral";
+  return value > 0 ? "up" : "down";
 }
 
 function fmtMultiple(value: number | null | undefined) {
@@ -1230,12 +1265,14 @@ export default function App() {
       <section className="workspace">
         <header className="topbar">
           <div>
-            <p className="eyebrow">{snapshot.cadence === "live" ? "实时快照" : "本地快照"} · {fmtDate(snapshot.generatedAt)}</p>
+            <p className="eyebrow">
+              {snapshot.cadence === "live" ? "实时快照" : "本地快照"} · 数据时间 {fmtDateTime(snapshot.generatedAt)}
+            </p>
             <h2>{comparisonMode ? copy.compareTitle : copy.title}</h2>
           </div>
           <div className="source-pill">
             <ChartLine size={16} />
-            {sourceText(snapshot, usingFallback)}
+            <span>{sourceText(snapshot, usingFallback)}</span>
           </div>
         </header>
 
@@ -1354,6 +1391,7 @@ export default function App() {
             <div className="score-row score-row-head">
               <span>股票</span>
               <span>行业模板</span>
+              <span>股价</span>
               <span>总分</span>
               <span>六维分布</span>
               <span>公开数据</span>
@@ -1367,6 +1405,13 @@ export default function App() {
                     <small>{item.name}</small>
                   </span>
                   <span>{item.template}</span>
+                  <span className="price-cell">
+                    <strong>{fmtPrice(item.currentPrice ?? null, market)}</strong>
+                    <small className={priceChangeClass(item.metrics?.percentChange)}>
+                      {fmtPriceChange(item.metrics?.percentChange)}
+                    </small>
+                    <small>{fmtShortMarketTime(item.quoteAsOf ?? snapshot.generatedAt, market)}</small>
+                  </span>
                   <span className={`score-badge ${itemTier.className}`}>{item.totalScore}/30</span>
                   <span className="mini-bars" aria-label={`${item.ticker} score dimensions`}>
                     {dimensions.map((dimension) => (
@@ -1424,6 +1469,26 @@ export default function App() {
               <span>{selected.industry || "Industry n/a"}</span>
               <span>{selected.template}</span>
             </div>
+
+            <section className="market-data-card">
+              <div>
+                <span>最新股价</span>
+                <strong>{fmtPrice(selected.currentPrice ?? null, market)}</strong>
+                <small className={priceChangeClass(selected.metrics?.percentChange)}>
+                  {fmtPriceChange(selected.metrics?.percentChange)}
+                </small>
+              </div>
+              <div>
+                <span>行情时间</span>
+                <strong>{fmtMarketTime(selected.quoteAsOf ?? snapshot.generatedAt, market)}</strong>
+                <small>{selected.quoteAsOf ? "来自行情源" : "使用快照时间兜底"}</small>
+              </div>
+              <div>
+                <span>评分时间</span>
+                <strong>{fmtDateTime(snapshot.generatedAt)}</strong>
+                <small>{snapshot.cadence === "live" ? "服务端计算" : "本地兜底快照"}</small>
+              </div>
+            </section>
 
             {selectedBrief ? (
               <section className="company-brief">

@@ -233,8 +233,13 @@ async function fetchYahooPrice(ticker) {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=1d&interval=1d`;
   const payload = await fetchJson(url, { "User-Agent": "Mozilla/5.0 QualityValueScreener/1.0" });
   const meta = payload?.chart?.result?.[0]?.meta || {};
+  const currentPrice = typeof meta.regularMarketPrice === "number" ? meta.regularMarketPrice : null;
+  const previousClose = typeof meta.chartPreviousClose === "number" ? meta.chartPreviousClose : null;
   return {
-    currentPrice: typeof meta.regularMarketPrice === "number" ? meta.regularMarketPrice : null,
+    currentPrice,
+    previousClose,
+    percentChange: currentPrice != null && previousClose ? (currentPrice - previousClose) / previousClose : null,
+    quoteAsOf: typeof meta.regularMarketTime === "number" ? new Date(meta.regularMarketTime * 1000).toISOString() : null,
     exchangeName: meta.fullExchangeName || meta.exchangeName || "",
     currency: meta.currency || "USD"
   };
@@ -378,6 +383,9 @@ function extractMetrics(companyFacts, price) {
 
   return {
     currentPrice: price.currentPrice,
+    quoteAsOf: price.quoteAsOf ?? null,
+    previousClose: price.previousClose ?? null,
+    percentChange: price.percentChange ?? null,
     marketCap,
     trailingPE: marketCap && latestNetIncome ? marketCap / latestNetIncome : null,
     revenueGrowth: latestRevenue != null && previousRevenue ? (latestRevenue - previousRevenue) / Math.abs(previousRevenue) : null,
@@ -420,6 +428,7 @@ function scoreCompany({ ticker, name, sector, industry, template, metrics }) {
     industry,
     template,
     currentPrice: metrics.currentPrice,
+    quoteAsOf: metrics.quoteAsOf ?? null,
     totalScore: growth + quality + cashFlow + valuation + risk + sustainability,
     growth,
     quality,

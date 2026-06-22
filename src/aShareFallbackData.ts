@@ -16,6 +16,7 @@ const score = (
   industry,
   template,
   currentPrice,
+  quoteAsOf: "2026-06-05T00:00:00.000Z",
   totalScore: dimensions.growth + dimensions.quality + dimensions.cashFlow + dimensions.valuation + dimensions.risk + dimensions.sustainability,
   ...dimensions,
   reasons: {
