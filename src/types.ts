@@ -30,5 +30,15 @@ export type Snapshot = {
   cadence: "weekly" | "live";
   source: string;
   featuredTickers: string[];
+  coverage?: {
+    scope?: string;
+    listedCount?: number;
+    factsCount?: number;
+    pricedCount?: number;
+    scoredCount?: number;
+    matchedCount?: number;
+    returnedCount?: number;
+    excludedCount?: number;
+  };
   scores: StockScore[];
 };

@@ -47,6 +47,8 @@ type CompanyBrief = {
   outlook: string;
 };
 
+type SortKey = "totalScore" | ScoreDimension;
+
 const dimensions: Array<{ key: ScoreDimension; label: string; short: string }> = [
   { key: "growth", label: "高增长", short: "Growth" },
   { key: "quality", label: "高质量", short: "Quality" },
@@ -54,6 +56,11 @@ const dimensions: Array<{ key: ScoreDimension; label: string; short: string }> =
   { key: "valuation", label: "低估值", short: "Value" },
   { key: "risk", label: "低风险", short: "Risk" },
   { key: "sustainability", label: "可持续", short: "Moat" }
+];
+
+const sortOptions: Array<{ key: SortKey; label: string; max: number }> = [
+  { key: "totalScore", label: "总分", max: 30 },
+  ...dimensions.map((dimension) => ({ key: dimension.key, label: dimension.label, max: 5 }))
 ];
 
 function resolveApiBase() {
@@ -398,6 +405,13 @@ function tier(score: number) {
   return { label: "低优先级", className: "tier-low" };
 }
 
+function dimensionTierClass(score: number) {
+  if (score >= 4) return "tier-high";
+  if (score >= 3) return "tier-mid";
+  if (score >= 2) return "tier-watch";
+  return "tier-low";
+}
+
 function fmtPrice(value: number | null, market: Market) {
   if (value == null) return "n/a";
   const prefix = market === "cn" ? "¥" : "$";
@@ -452,6 +466,18 @@ function fmtPriceChange(value: number | null | undefined) {
 function priceChangeClass(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value) || value === 0) return "neutral";
   return value > 0 ? "up" : "down";
+}
+
+function sortValue(stock: StockScore, sortKey: SortKey) {
+  return sortKey === "totalScore" ? stock.totalScore : stock[sortKey];
+}
+
+function compareStocks(a: StockScore, b: StockScore, sortKey: SortKey) {
+  const primary = sortValue(b, sortKey) - sortValue(a, sortKey);
+  if (primary !== 0) return primary;
+  const total = b.totalScore - a.totalScore;
+  if (total !== 0) return total;
+  return a.ticker.localeCompare(b.ticker);
 }
 
 function fmtMultiple(value: number | null | undefined) {
@@ -668,6 +694,29 @@ function sourceText(snapshot: Snapshot, usingFallback: boolean) {
     : snapshot.source;
 }
 
+let bundledMarketSnapshotPromise: Promise<Snapshot> | null = null;
+
+function loadBundledMarketSnapshot() {
+  if (!bundledMarketSnapshotPromise) {
+    bundledMarketSnapshotPromise = fetch("/data/us-market-scores.json")
+      .then((response) => {
+        if (!response.ok) throw new Error("bundled market snapshot unavailable");
+        return response.json() as Promise<Snapshot>;
+      })
+      .then((data) => {
+        if (!Array.isArray(data.scores) || data.scores.length === 0) {
+          throw new Error("bundled market snapshot is empty");
+        }
+        return data;
+      })
+      .catch((error) => {
+        bundledMarketSnapshotPromise = null;
+        throw error;
+      });
+  }
+  return bundledMarketSnapshotPromise;
+}
+
 function shouldLiveLookup(value: string, scores: StockScore[], candidates: SearchCandidate[], market: Market) {
   const ticker = normalizeTicker(value, market);
   if (!isTicker(ticker, market)) return "";
@@ -703,8 +752,10 @@ export default function App() {
   const [usingFallback, setUsingFallback] = useState(true);
   const [query, setQuery] = useState("");
   const [industry, setIndustry] = useState("All");
-  const [selectedTicker, setSelectedTicker] = useState(fallbackSnapshot.featuredTickers[0]);
+  const [selectedTicker, setSelectedTicker] = useState("");
   const [minScore, setMinScore] = useState(0);
+  const [sortKey, setSortKey] = useState<SortKey>("totalScore");
+  const [minDimensionScore, setMinDimensionScore] = useState(0);
   const [lookupTicker, setLookupTicker] = useState("");
   const [lookupStatus, setLookupStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [lookupMessage, setLookupMessage] = useState("");
@@ -715,14 +766,15 @@ export default function App() {
   const [showModelGuide, setShowModelGuide] = useState(false);
 
   useEffect(() => {
-    let alive = true;
     const fallback = fallbackSnapshotForMarket(market);
     setSnapshot(fallback);
     setUsingFallback(true);
     setQuery("");
     setIndustry("All");
-    setSelectedTicker(fallback.featuredTickers[0]);
+    setSelectedTicker("");
     setMinScore(0);
+    setSortKey("totalScore");
+    setMinDimensionScore(0);
     setLookupTicker("");
     setLookupStatus("idle");
     setLookupMessage("");
@@ -730,32 +782,6 @@ export default function App() {
     setCandidateStatus("idle");
     setLoadedIndustryKey("");
     setCompareTickers([]);
-
-    fetch(`${apiBase}${snapshotEndpoint(market)}`)
-      .then((response) => {
-        if (!response.ok) throw new Error("snapshot unavailable");
-        return response.json();
-      })
-      .then((data: Snapshot) => {
-        if (!alive || !Array.isArray(data.scores) || data.scores.length === 0) return;
-        setSnapshot((current) => {
-          const incoming = new Map(data.scores.map((score) => [score.ticker, score]));
-          const preserved = current.scores.filter((score) => !incoming.has(score.ticker));
-          return {
-            ...data,
-            scores: [...data.scores, ...preserved]
-          };
-        });
-        setUsingFallback(false);
-        setLoadedIndustryKey("");
-        setSelectedTicker((current) => current || data.featuredTickers[0] || data.scores[0].ticker);
-      })
-      .catch(() => {
-        setUsingFallback(true);
-      });
-    return () => {
-      alive = false;
-    };
   }, [market]);
 
   const normalizedIndustryQuery = useMemo(() => shouldIndustryLookup(query), [query]);
@@ -763,13 +789,16 @@ export default function App() {
     if (query.trim()) return "";
     return templateSearchKeyForMarket(market)[industry] || "";
   }, [industry, market, query]);
-  const serverIndustryQuery = normalizedIndustryQuery || normalizedTemplateQuery;
+  const serverIndustryQuery = normalizedIndustryQuery || (market === "cn" ? normalizedTemplateQuery : "");
   const activeIndustryOptions = useMemo(() => industryOptionsForMarket(market), [market]);
+  const activeSortOption = sortOptions.find((option) => option.key === sortKey) || sortOptions[0];
+  const activeSortLabel = activeSortOption.label;
+  const isDimensionSort = sortKey !== "totalScore";
   const copy = marketCopy[market];
 
   const sortedScores = useMemo(
-    () => [...snapshot.scores].sort((a, b) => b.totalScore - a.totalScore),
-    [snapshot.scores]
+    () => [...snapshot.scores].sort((a, b) => compareStocks(a, b, sortKey)),
+    [snapshot.scores, sortKey]
   );
 
   const normalizedTickerQuery = useMemo(() => {
@@ -778,6 +807,74 @@ export default function App() {
 
   const compareSet = useMemo(() => new Set(compareTickers), [compareTickers]);
   const comparisonMode = compareTickers.length > 0;
+  const isDefaultTopTenView =
+    !comparisonMode &&
+    !query.trim() &&
+    industry === "All" &&
+    minScore === 0 &&
+    sortKey === "totalScore" &&
+    minDimensionScore === 0;
+
+  useEffect(() => {
+    if (comparisonMode || query.trim() || (market === "cn" && industry !== "All")) return;
+
+    const controller = new AbortController();
+    const params = new URLSearchParams();
+    if (market === "us") {
+      params.set("scope", "market");
+      params.set("sort", sortKey);
+      params.set("minScore", String(minScore));
+      params.set("minDimensionScore", String(minDimensionScore));
+      params.set("limit", "100");
+      if (industry !== "All") params.set("template", industry);
+    }
+    const suffix = params.size ? `?${params.toString()}` : "";
+    const timer = window.setTimeout(() => {
+      fetch(`${apiBase}${snapshotEndpoint(market)}${suffix}`, { signal: controller.signal })
+        .then((response) => {
+          if (!response.ok) throw new Error("snapshot unavailable");
+          return response.json();
+        })
+        .then((data: Snapshot) => {
+          if (!Array.isArray(data.scores)) return;
+          if (market === "cn" && data.scores.length === 0) return;
+          setSnapshot(data);
+          setUsingFallback(false);
+          setLoadedIndustryKey("");
+          setSelectedTicker((current) =>
+            data.scores.some((score) => score.ticker === current)
+              ? current
+              : data.featuredTickers[0] || data.scores[0]?.ticker || ""
+          );
+        })
+        .catch(() => {
+          if (controller.signal.aborted || market !== "us") {
+            if (!controller.signal.aborted) setUsingFallback(true);
+            return;
+          }
+          return loadBundledMarketSnapshot()
+            .then((data) => {
+              if (controller.signal.aborted) return;
+              setSnapshot(data);
+              setUsingFallback(false);
+              setLoadedIndustryKey("");
+              setSelectedTicker((current) =>
+                data.scores.some((score) => score.ticker === current)
+                  ? current
+                  : data.featuredTickers[0] || data.scores[0]?.ticker || ""
+              );
+            })
+            .catch(() => {
+              if (!controller.signal.aborted) setUsingFallback(true);
+            });
+        });
+    }, 180);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [comparisonMode, industry, market, minDimensionScore, minScore, query, sortKey]);
 
   useEffect(() => {
     const value = query.trim();
@@ -893,12 +990,27 @@ export default function App() {
   useEffect(() => {
     if (!serverIndustryQuery) return;
 
+    if (market === "us" && snapshot.coverage?.scope === "us-scoreable-market") {
+      setLoadedIndustryKey(serverIndustryQuery);
+      setLookupStatus("done");
+      setLookupMessage(`${serverIndustryQuery} 已从全量可评分池更新`);
+      return;
+    }
+
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       setLookupTicker("");
       setLookupStatus("loading");
-      setLookupMessage(`正在实时计算 ${serverIndustryQuery} 行业股票池`);
-      fetch(`${apiBase}${snapshotEndpoint(market)}?q=${encodeURIComponent(serverIndustryQuery)}`, {
+      setLookupMessage(market === "us" ? `正在从全量可评分池筛选 ${serverIndustryQuery}` : `正在实时计算 ${serverIndustryQuery} 行业股票池`);
+      const params = new URLSearchParams({ q: serverIndustryQuery });
+      if (market === "us") {
+        params.set("scope", "market");
+        params.set("sort", sortKey);
+        params.set("minScore", String(minScore));
+        params.set("minDimensionScore", String(minDimensionScore));
+        params.set("limit", "100");
+      }
+      fetch(`${apiBase}${snapshotEndpoint(market)}?${params.toString()}`, {
         signal: controller.signal
       })
         .then((response) => {
@@ -914,7 +1026,7 @@ export default function App() {
           setLoadedIndustryKey(serverIndustryQuery);
           setSelectedTicker(data.scores[0].ticker);
           setLookupStatus("done");
-          setLookupMessage(`${serverIndustryQuery} 已按服务端实时数据更新`);
+          setLookupMessage(`${serverIndustryQuery} 已从${market === "us" ? "全量可评分池" : "服务端实时数据"}更新`);
         })
         .catch((error) => {
           if (controller.signal.aborted) return;
@@ -927,7 +1039,7 @@ export default function App() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [market, serverIndustryQuery]);
+  }, [market, minDimensionScore, minScore, serverIndustryQuery, snapshot.coverage?.scope, sortKey]);
 
   const localStockMatches = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -957,34 +1069,51 @@ export default function App() {
     return "没有匹配的公司名或代码。";
   }, [candidateStatus, localStockMatches.length, market, normalizedIndustryQuery, query, remoteCandidates.length, searchCandidates, snapshot.scores]);
 
-  const filtered = useMemo(() => {
+  const { items: filtered, matchedCount: localMatchedCount } = useMemo(() => {
+    const passesScoreFilters = (item: StockScore) =>
+      item.totalScore >= minScore && (!isDimensionSort || sortValue(item, sortKey) >= minDimensionScore);
+
     if (comparisonMode) {
-      return sortedScores.filter((item) => compareSet.has(item.ticker) && item.totalScore >= minScore);
+      const matches = sortedScores.filter((item) => compareSet.has(item.ticker) && passesScoreFilters(item));
+      return { items: matches, matchedCount: matches.length };
     }
     const needle = query.trim().toLowerCase();
     const isIndustrySearchResult = Boolean(normalizedIndustryQuery && loadedIndustryKey === normalizedIndustryQuery);
     const selectedIndustryKey = templateSearchKeyForMarket(market)[industry] || "";
     const isSelectedIndustryUniverse = Boolean(!needle && selectedIndustryKey && loadedIndustryKey === selectedIndustryKey);
-    return sortedScores.filter((item) => {
+    const matches = sortedScores.filter((item) => {
       const matchesText =
         !needle ||
         isIndustrySearchResult ||
         item.ticker.toLowerCase().includes(needle) ||
         item.name.toLowerCase().includes(needle);
       const matchesIndustry = industry === "All" || isSelectedIndustryUniverse || item.template === industry;
-      return matchesText && matchesIndustry && item.totalScore >= minScore;
+      return matchesText && matchesIndustry && passesScoreFilters(item);
     });
-  }, [compareSet, comparisonMode, industry, loadedIndustryKey, market, minScore, normalizedIndustryQuery, query, sortedScores]);
+    return {
+      items: matches.slice(0, isDefaultTopTenView ? 10 : 100),
+      matchedCount: matches.length
+    };
+  }, [
+    compareSet,
+    comparisonMode,
+    industry,
+    isDefaultTopTenView,
+    isDimensionSort,
+    loadedIndustryKey,
+    market,
+    minDimensionScore,
+    minScore,
+    normalizedIndustryQuery,
+    query,
+    sortKey,
+    sortedScores
+  ]);
 
-  const featured = useMemo(() => {
-    if (comparisonMode) return filtered.slice(0, 5);
-    const set = new Set(snapshot.featuredTickers);
-    const items = snapshot.scores.filter((item) => set.has(item.ticker));
-    return items.length ? items : sortedScores.slice(0, 5);
-  }, [comparisonMode, filtered, snapshot.featuredTickers, snapshot.scores, sortedScores]);
+  const featured = useMemo(() => (filtered.length ? filtered.slice(0, 5) : sortedScores.slice(0, 5)), [filtered, sortedScores]);
 
   const selected = useMemo(
-    () => sortedScores.find((item) => item.ticker === selectedTicker) || filtered[0] || sortedScores[0],
+    () => filtered.find((item) => item.ticker === selectedTicker) || filtered[0] || sortedScores.find((item) => item.ticker === selectedTicker) || sortedScores[0],
     [filtered, selectedTicker, sortedScores]
   );
   const selectedBrief = useMemo(() => (selected ? companyBrief(selected) : null), [selected]);
@@ -1001,21 +1130,32 @@ export default function App() {
 
   const barData = useMemo(
     () =>
-      filtered.slice(0, 12).map((item) => ({
+      filtered.slice(0, 10).map((item) => ({
         ticker: item.ticker,
-        score: item.totalScore,
+        score: sortValue(item, sortKey),
+        totalScore: item.totalScore,
         template: item.template
       })),
-    [filtered]
+    [filtered, sortKey]
   );
 
   const summary = useMemo(() => {
-    const source = comparisonMode ? filtered : sortedScores;
+    const source = filtered;
     const high = source.filter((item) => item.totalScore >= 25).length;
     const avg = source.reduce((sum, item) => sum + item.totalScore, 0) / Math.max(source.length, 1);
     const templates = new Set(source.map((item) => item.template)).size;
     return { high, avg, templates };
-  }, [comparisonMode, filtered, sortedScores]);
+  }, [filtered]);
+
+  const scoreableUniverseCount = snapshot.coverage?.scoredCount ?? sortedScores.length;
+  const matchedUniverseCount = snapshot.coverage?.matchedCount ?? localMatchedCount;
+  const isFullMarketSnapshot = snapshot.coverage?.scope === "us-scoreable-market";
+  const visibleCountLabel = isDefaultTopTenView
+    ? `前 ${filtered.length} / ${scoreableUniverseCount.toLocaleString("zh-CN")} 支`
+    : `显示 ${filtered.length} / ${matchedUniverseCount.toLocaleString("zh-CN")} 支`;
+  const rankingTitle = comparisonMode ? "对比结果排行" : isDefaultTopTenView ? "总分排名前十" : `${activeSortLabel}排序`;
+  const tableTitle = comparisonMode ? "对比股票池" : isDefaultTopTenView ? "总分前十股票" : "可搜索股票池";
+  const rankingColumnLabel = isDimensionSort ? activeSortLabel : "总分";
 
   const lookupCandidateTicker = normalizedTickerQuery || localStockMatches[0]?.ticker || remoteCandidates[0]?.ticker || selected?.ticker || (market === "cn" ? "600519" : "MSFT");
   const customPrimaryUrl = primaryDataUrl(market, lookupCandidateTicker);
@@ -1089,12 +1229,19 @@ export default function App() {
   };
   const handleIndustryChange = (value: string) => {
     setIndustry(value);
+    setSelectedTicker("");
     if (value !== "All") {
       setQuery("");
       setSearchCandidates([]);
       setCandidateStatus("idle");
       setCompareTickers([]);
     }
+  };
+  const handleSortKeyChange = (value: string) => {
+    const nextSortKey = value as SortKey;
+    setSortKey(nextSortKey);
+    setSelectedTicker("");
+    if (nextSortKey === "totalScore") setMinDimensionScore(0);
   };
   const handleAddCurrentInput = () => {
     const raw = query.trim();
@@ -1234,6 +1381,47 @@ export default function App() {
         </section>
 
         <section className="control-group">
+          <label htmlFor="sort-key">排序维度</label>
+          <div className="select-row">
+            <SlidersHorizontal size={17} />
+            <select id="sort-key" value={sortKey} onChange={(event) => handleSortKeyChange(event.target.value)}>
+              {sortOptions.map((item) => (
+                <option key={item.key} value={item.key}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+            <ChevronDown size={16} />
+          </div>
+          <p className="control-note">
+            {market === "us" && isFullMarketSnapshot
+              ? `从 ${scoreableUniverseCount.toLocaleString("zh-CN")} 支可评分股票中重新筛选并排序。`
+              : "图表和列表会按当前维度从高到低排序。"}
+          </p>
+        </section>
+
+        {isDimensionSort ? (
+          <section className="control-group">
+            <div className="slider-head">
+              <label htmlFor="min-dimension-score">当前维度最低分</label>
+              <strong>{minDimensionScore}</strong>
+            </div>
+            <input
+              id="min-dimension-score"
+              type="range"
+              min="0"
+              max="5"
+              step="1"
+              value={minDimensionScore}
+              onChange={(event) => {
+                setMinDimensionScore(Number(event.target.value));
+                setSelectedTicker("");
+              }}
+            />
+          </section>
+        ) : null}
+
+        <section className="control-group">
           <div className="slider-head">
             <label htmlFor="min-score">最低总分</label>
             <strong>{minScore}</strong>
@@ -1266,7 +1454,7 @@ export default function App() {
         <header className="topbar">
           <div>
             <p className="eyebrow">
-              {snapshot.cadence === "live" ? "实时快照" : "本地快照"} · 数据时间 {fmtDateTime(snapshot.generatedAt)}
+              {isFullMarketSnapshot ? "全市场评分" : snapshot.cadence === "live" ? "实时快照" : "本地快照"} · 数据时间 {fmtDateTime(snapshot.generatedAt)}
             </p>
             <h2>{comparisonMode ? copy.compareTitle : copy.title}</h2>
           </div>
@@ -1284,6 +1472,8 @@ export default function App() {
         >
           {featured.slice(0, 5).map((item) => {
             const itemTier = tier(item.totalScore);
+            const itemRankValue = sortValue(item, sortKey);
+            const itemRankClass = isDimensionSort ? dimensionTierClass(itemRankValue) : itemTier.className;
             return (
               <button
                 className={`featured-item ${selected?.ticker === item.ticker ? "active" : ""}`}
@@ -1293,8 +1483,8 @@ export default function App() {
                 <span className="ticker">{item.ticker}</span>
                 <span className="company">{item.name}</span>
                 <span className="score-line">
-                  <strong>{item.totalScore}/30</strong>
-                  <small className={itemTier.className}>{itemTier.label}</small>
+                  <strong>{isDimensionSort ? `${itemRankValue}/${activeSortOption.max}` : `${item.totalScore}/30`}</strong>
+                  <small className={itemRankClass}>{isDimensionSort ? `总分 ${item.totalScore}/30` : itemTier.label}</small>
                 </span>
               </button>
             );
@@ -1311,9 +1501,9 @@ export default function App() {
             <div className="panel-head">
               <div>
                 <p className="eyebrow">{comparisonMode ? "Compare" : "Top Screen"}</p>
-                <h3>{comparisonMode ? "对比结果排行" : "筛选结果排行"}</h3>
+                <h3>{rankingTitle}</h3>
               </div>
-              <span>{filtered.length} 支</span>
+              <span>{visibleCountLabel}</span>
             </div>
             <div className="bar-chart">
               {barData.length ? (
@@ -1321,7 +1511,7 @@ export default function App() {
                   <BarChart data={barData} margin={{ top: 12, right: 14, left: -18, bottom: 0 }}>
                     <CartesianGrid stroke="#d8dde8" strokeDasharray="3 3" vertical={false} />
                     <XAxis dataKey="ticker" tickLine={false} axisLine={false} />
-                    <YAxis domain={[0, 30]} tickLine={false} axisLine={false} />
+                    <YAxis domain={[0, activeSortOption.max]} tickLine={false} axisLine={false} />
                     <Tooltip cursor={{ fill: "rgba(64, 93, 230, 0.08)" }} />
                     <Bar
                       dataKey="score"
@@ -1332,7 +1522,10 @@ export default function App() {
                       }}
                     >
                       {barData.map((entry) => (
-                        <Cell key={entry.ticker} fill={entry.score >= 25 ? "#237a62" : entry.score >= 20 ? "#405de6" : "#a05a2c"} />
+                        <Cell
+                          key={entry.ticker}
+                          fill={entry.score >= activeSortOption.max * 0.8 ? "#237a62" : entry.score >= activeSortOption.max * 0.6 ? "#405de6" : "#a05a2c"}
+                        />
                       ))}
                     </Bar>
                   </BarChart>
@@ -1379,12 +1572,13 @@ export default function App() {
           <div className="panel-head table-head">
             <div>
               <p className="eyebrow">{comparisonMode ? "Compare Set" : "Universe"}</p>
-              <h3>{comparisonMode ? "对比股票池" : "可搜索股票池"}</h3>
+              <h3>{tableTitle}</h3>
             </div>
             <div className="metrics-row">
               <span>{summary.high} 支高质量候选</span>
               <span>平均 {summary.avg.toFixed(1)}/30</span>
               <span>{summary.templates} 类模板</span>
+              {isFullMarketSnapshot ? <span>全池 {scoreableUniverseCount.toLocaleString("zh-CN")} 支</span> : null}
             </div>
           </div>
           <div className="score-table">
@@ -1392,12 +1586,14 @@ export default function App() {
               <span>股票</span>
               <span>行业模板</span>
               <span>股价</span>
-              <span>总分</span>
+              <span>{rankingColumnLabel}</span>
               <span>六维分布</span>
               <span>公开数据</span>
             </div>
             {filtered.map((item) => {
               const itemTier = tier(item.totalScore);
+              const itemRankValue = sortValue(item, sortKey);
+              const itemRankClass = isDimensionSort ? dimensionTierClass(itemRankValue) : itemTier.className;
               return (
                 <button className="score-row" key={item.ticker} onClick={() => setSelectedTicker(item.ticker)}>
                   <span className="stock-cell">
@@ -1412,7 +1608,10 @@ export default function App() {
                     </small>
                     <small>{fmtShortMarketTime(item.quoteAsOf ?? snapshot.generatedAt, market)}</small>
                   </span>
-                  <span className={`score-badge ${itemTier.className}`}>{item.totalScore}/30</span>
+                  <span className={`score-badge rank-badge ${itemRankClass}`}>
+                    <strong>{itemRankValue}/{activeSortOption.max}</strong>
+                    {isDimensionSort ? <small>总分 {item.totalScore}/30</small> : null}
+                  </span>
                   <span className="mini-bars" aria-label={`${item.ticker} score dimensions`}>
                     {dimensions.map((dimension) => (
                       <i

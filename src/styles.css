@@ -225,6 +225,13 @@ h3 {
   line-height: 1.35;
 }
 
+.control-note {
+  margin: 8px 0 0;
+  color: #66706a;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .search-suggestions {
   display: grid;
   gap: 6px;
@@ -685,6 +692,24 @@ button.score-row:hover {
   padding: 5px 8px;
   background: #f3f5f0;
   border-radius: 8px;
+}
+
+.rank-badge {
+  display: inline-grid;
+  gap: 1px;
+  justify-items: center;
+  line-height: 1.1;
+}
+
+.rank-badge strong {
+  font-size: 13px;
+}
+
+.rank-badge small {
+  color: #66706a;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
 }
 
 .mini-bars {
