@@ -835,9 +835,12 @@ export default function App() {
           if (!response.ok) throw new Error("snapshot unavailable");
           return response.json();
         })
-        .then((data: Snapshot) => {
+        .then(async (data: Snapshot) => {
           if (!Array.isArray(data.scores)) return;
           if (market === "cn" && data.scores.length === 0) return;
+          if (market === "us" && data.coverage?.scope !== "us-scoreable-market") {
+            data = await loadBundledMarketSnapshot();
+          }
           setSnapshot(data);
           setUsingFallback(false);
           setLoadedIndustryKey("");
