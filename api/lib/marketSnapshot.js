@@ -11,6 +11,15 @@ const SORT_KEYS = new Set([
   "sustainability"
 ]);
 
+const DIMENSION_MINIMUM_PARAMS = [
+  ["growth", "minGrowth"],
+  ["quality", "minQuality"],
+  ["cashFlow", "minCashFlow"],
+  ["valuation", "minValuation"],
+  ["risk", "minRisk"],
+  ["sustainability", "minSustainability"]
+];
+
 const CACHE_TTL_MS = 15 * 60 * 1000;
 let cachedSnapshot = null;
 let cachedAt = 0;
@@ -61,6 +70,9 @@ export function queryMarketSnapshot(snapshot, query = {}) {
   const sortKey = SORT_KEYS.has(String(query.sort || "")) ? String(query.sort) : "totalScore";
   const minScore = numberParam(query.minScore, 0, 0, 30);
   const minDimensionScore = numberParam(query.minDimensionScore, 0, 0, 5);
+  const dimensionMinimums = Object.fromEntries(
+    DIMENSION_MINIMUM_PARAMS.map(([dimension, param]) => [dimension, numberParam(query[param], 0, 0, 5)])
+  );
   const limit = Math.round(numberParam(query.limit, 100, 1, 200));
   const template = String(query.template || "").trim().toLowerCase();
   const search = String(query.q || "").trim().toLowerCase();
@@ -69,6 +81,7 @@ export function queryMarketSnapshot(snapshot, query = {}) {
     .filter((stock) => {
       if (Number(stock.totalScore || 0) < minScore) return false;
       if (sortKey !== "totalScore" && Number(stock[sortKey] || 0) < minDimensionScore) return false;
+      if (DIMENSION_MINIMUM_PARAMS.some(([dimension]) => Number(stock[dimension] || 0) < dimensionMinimums[dimension])) return false;
       if (template && String(stock.template || "").toLowerCase() !== template) return false;
       if (!search) return true;
       const haystack = [stock.ticker, stock.name, stock.sector, stock.industry, stock.template]

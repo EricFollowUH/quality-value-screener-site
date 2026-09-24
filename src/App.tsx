@@ -48,6 +48,7 @@ type CompanyBrief = {
 };
 
 type SortKey = "totalScore" | ScoreDimension;
+type DimensionMinimums = Record<ScoreDimension, number>;
 
 const dimensions: Array<{ key: ScoreDimension; label: string; short: string }> = [
   { key: "growth", label: "高增长", short: "Growth" },
@@ -62,6 +63,30 @@ const sortOptions: Array<{ key: SortKey; label: string; max: number }> = [
   { key: "totalScore", label: "总分", max: 30 },
   ...dimensions.map((dimension) => ({ key: dimension.key, label: dimension.label, max: 5 }))
 ];
+
+const emptyDimensionMinimums: DimensionMinimums = {
+  growth: 0,
+  quality: 0,
+  cashFlow: 0,
+  valuation: 0,
+  risk: 0,
+  sustainability: 0
+};
+
+const dimensionMinimumParams: Record<ScoreDimension, string> = {
+  growth: "minGrowth",
+  quality: "minQuality",
+  cashFlow: "minCashFlow",
+  valuation: "minValuation",
+  risk: "minRisk",
+  sustainability: "minSustainability"
+};
+
+function appendDimensionMinimumParams(params: URLSearchParams, minimums: DimensionMinimums) {
+  dimensions.forEach(({ key }) => {
+    if (minimums[key] > 0) params.set(dimensionMinimumParams[key], String(minimums[key]));
+  });
+}
 
 function resolveApiBase() {
   if (typeof window === "undefined") return "";
@@ -717,18 +742,6 @@ function loadBundledMarketSnapshot() {
   return bundledMarketSnapshotPromise;
 }
 
-function shouldLiveLookup(value: string, scores: StockScore[], candidates: SearchCandidate[], market: Market) {
-  const ticker = normalizeTicker(value, market);
-  if (!isTicker(ticker, market)) return "";
-  const keyword = ticker.toLowerCase();
-  if (market === "us" && industryKeywords.has(keyword)) return "";
-  const alreadyLoaded = scores.some((item) => item.ticker === ticker);
-  const exactCandidate = candidates.some((candidate) => candidate.ticker === ticker);
-  if (market === "cn") return ticker;
-  if (!alreadyLoaded && !exactCandidate) return "";
-  return ticker;
-}
-
 function shouldIndustryLookup(value: string) {
   const keyword = value.trim().toLowerCase();
   if (!keyword || !industryKeywords.has(keyword)) return "";
@@ -746,6 +759,17 @@ function parseTickerList(value: string, market: Market) {
   );
 }
 
+function stockSearchRank(stock: StockScore, needle: string) {
+  const ticker = stock.ticker.toLowerCase();
+  const name = stock.name.toLowerCase();
+  if (ticker === needle) return 0;
+  if (ticker.startsWith(needle)) return 1;
+  if (name.startsWith(needle)) return 2;
+  if (ticker.includes(needle)) return 3;
+  if (name.includes(needle)) return 4;
+  return 5;
+}
+
 export default function App() {
   const [market, setMarket] = useState<Market>("us");
   const [snapshot, setSnapshot] = useState<Snapshot>(fallbackSnapshot);
@@ -755,7 +779,7 @@ export default function App() {
   const [selectedTicker, setSelectedTicker] = useState("");
   const [minScore, setMinScore] = useState(0);
   const [sortKey, setSortKey] = useState<SortKey>("totalScore");
-  const [minDimensionScore, setMinDimensionScore] = useState(0);
+  const [dimensionMinimums, setDimensionMinimums] = useState<DimensionMinimums>(emptyDimensionMinimums);
   const [lookupTicker, setLookupTicker] = useState("");
   const [lookupStatus, setLookupStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [lookupMessage, setLookupMessage] = useState("");
@@ -774,7 +798,7 @@ export default function App() {
     setSelectedTicker("");
     setMinScore(0);
     setSortKey("totalScore");
-    setMinDimensionScore(0);
+    setDimensionMinimums(emptyDimensionMinimums);
     setLookupTicker("");
     setLookupStatus("idle");
     setLookupMessage("");
@@ -801,10 +825,6 @@ export default function App() {
     [snapshot.scores, sortKey]
   );
 
-  const normalizedTickerQuery = useMemo(() => {
-    return shouldLiveLookup(query, snapshot.scores, searchCandidates, market);
-  }, [market, query, searchCandidates, snapshot.scores]);
-
   const compareSet = useMemo(() => new Set(compareTickers), [compareTickers]);
   const comparisonMode = compareTickers.length > 0;
   const isDefaultTopTenView =
@@ -813,7 +833,7 @@ export default function App() {
     industry === "All" &&
     minScore === 0 &&
     sortKey === "totalScore" &&
-    minDimensionScore === 0;
+    dimensions.every(({ key }) => dimensionMinimums[key] === 0);
 
   useEffect(() => {
     if (comparisonMode || query.trim() || (market === "cn" && industry !== "All")) return;
@@ -824,7 +844,7 @@ export default function App() {
       params.set("scope", "market");
       params.set("sort", sortKey);
       params.set("minScore", String(minScore));
-      params.set("minDimensionScore", String(minDimensionScore));
+      appendDimensionMinimumParams(params, dimensionMinimums);
       params.set("limit", "100");
       if (industry !== "All") params.set("template", industry);
     }
@@ -877,7 +897,7 @@ export default function App() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [comparisonMode, industry, market, minDimensionScore, minScore, query, sortKey]);
+  }, [comparisonMode, dimensionMinimums, industry, market, minScore, query, sortKey]);
 
   useEffect(() => {
     const value = query.trim();
@@ -915,82 +935,6 @@ export default function App() {
   }, [market, normalizedIndustryQuery, query]);
 
   useEffect(() => {
-    if (!normalizedTickerQuery) {
-      setLookupTicker("");
-      setLookupStatus("idle");
-      setLookupMessage("");
-      return;
-    }
-
-    const alreadyLoaded = snapshot.scores.some((item) => item.ticker === normalizedTickerQuery);
-    if (alreadyLoaded) {
-      setLookupTicker(normalizedTickerQuery);
-      setLookupStatus("done");
-      setCompareTickers((current) => {
-        if (current.includes(normalizedTickerQuery)) return current;
-        return [...current, normalizedTickerQuery].slice(0, maxCompareTickers);
-      });
-      setSelectedTicker(normalizedTickerQuery);
-      setQuery("");
-      setSearchCandidates([]);
-      setLookupMessage(`${normalizedTickerQuery} 已加入对比`);
-      return;
-    }
-
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => {
-      setLookupTicker(normalizedTickerQuery);
-      setLookupStatus("loading");
-      setLookupMessage(`正在实时查询 ${normalizedTickerQuery}`);
-      fetch(`${apiBase}${snapshotEndpoint(market)}?tickers=${encodeURIComponent(normalizedTickerQuery)}`, {
-        signal: controller.signal
-      })
-        .then((response) => {
-          if (!response.ok) throw new Error("lookup unavailable");
-          return response.json();
-        })
-        .then((data: Snapshot) => {
-          const score = data.scores?.[0];
-          if (!score || score.totalScore === 0) {
-            throw new Error(score?.reasons?.growth || `${normalizedTickerQuery} 暂无可用公开数据`);
-          }
-          setSnapshot((current) => {
-            const withoutExisting = current.scores.filter((item) => item.ticker !== score.ticker);
-            return {
-              ...current,
-              generatedAt: data.generatedAt || current.generatedAt,
-              cadence: data.cadence || current.cadence,
-              source: data.source || current.source,
-              scores: [score, ...withoutExisting]
-            };
-          });
-          setLoadedIndustryKey("");
-          setIndustry("All");
-          setSelectedTicker(score.ticker);
-          setCompareTickers((current) => {
-            if (current.includes(score.ticker)) return current;
-            return [...current, score.ticker].slice(0, maxCompareTickers);
-          });
-          setUsingFallback(false);
-          setQuery("");
-          setSearchCandidates([]);
-          setLookupStatus("done");
-          setLookupMessage(`${score.ticker} 已加入对比`);
-        })
-        .catch((error) => {
-          if (controller.signal.aborted) return;
-          setLookupStatus("error");
-          setLookupMessage(error instanceof Error ? error.message : `${normalizedTickerQuery} 查询失败`);
-        });
-    }, 450);
-
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [market, normalizedTickerQuery, snapshot.scores]);
-
-  useEffect(() => {
     if (!serverIndustryQuery) return;
 
     if (market === "us" && snapshot.coverage?.scope === "us-scoreable-market") {
@@ -1010,7 +954,7 @@ export default function App() {
         params.set("scope", "market");
         params.set("sort", sortKey);
         params.set("minScore", String(minScore));
-        params.set("minDimensionScore", String(minDimensionScore));
+        appendDimensionMinimumParams(params, dimensionMinimums);
         params.set("limit", "100");
       }
       fetch(`${apiBase}${snapshotEndpoint(market)}?${params.toString()}`, {
@@ -1042,15 +986,16 @@ export default function App() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [market, minDimensionScore, minScore, serverIndustryQuery, snapshot.coverage?.scope, sortKey]);
+  }, [dimensionMinimums, market, minScore, serverIndustryQuery, snapshot.coverage?.scope, sortKey]);
 
   const localStockMatches = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle || normalizedIndustryQuery) return [];
+    if (needle.length < 2 || normalizedIndustryQuery) return [];
     return sortedScores
       .filter((item) => item.ticker.toLowerCase().includes(needle) || item.name.toLowerCase().includes(needle))
+      .sort((a, b) => stockSearchRank(a, needle) - stockSearchRank(b, needle) || compareStocks(a, b, sortKey))
       .slice(0, 5);
-  }, [normalizedIndustryQuery, query, sortedScores]);
+  }, [normalizedIndustryQuery, query, sortKey, sortedScores]);
 
   const remoteCandidates = useMemo(() => {
     const loadedTickers = new Set(localStockMatches.map((item) => item.ticker));
@@ -1074,7 +1019,7 @@ export default function App() {
 
   const { items: filtered, matchedCount: localMatchedCount } = useMemo(() => {
     const passesScoreFilters = (item: StockScore) =>
-      item.totalScore >= minScore && (!isDimensionSort || sortValue(item, sortKey) >= minDimensionScore);
+      item.totalScore >= minScore && dimensions.every(({ key }) => item[key] >= dimensionMinimums[key]);
 
     if (comparisonMode) {
       const matches = sortedScores.filter((item) => compareSet.has(item.ticker) && passesScoreFilters(item));
@@ -1102,10 +1047,9 @@ export default function App() {
     comparisonMode,
     industry,
     isDefaultTopTenView,
-    isDimensionSort,
+    dimensionMinimums,
     loadedIndustryKey,
     market,
-    minDimensionScore,
     minScore,
     normalizedIndustryQuery,
     query,
@@ -1160,8 +1104,17 @@ export default function App() {
   const tableTitle = comparisonMode ? "对比股票池" : isDefaultTopTenView ? "总分前十股票" : "可搜索股票池";
   const rankingColumnLabel = isDimensionSort ? activeSortLabel : "总分";
 
-  const lookupCandidateTicker = normalizedTickerQuery || localStockMatches[0]?.ticker || remoteCandidates[0]?.ticker || selected?.ticker || (market === "cn" ? "600519" : "MSFT");
+  const lookupCandidateTicker = localStockMatches[0]?.ticker || remoteCandidates[0]?.ticker || selected?.ticker || (market === "cn" ? "600519" : "MSFT");
   const customPrimaryUrl = primaryDataUrl(market, lookupCandidateTicker);
+  const activeFilterLabels = useMemo(() => {
+    const labels: string[] = [];
+    if (industry !== "All") labels.push(industry);
+    dimensions.forEach(({ key, label }) => {
+      if (dimensionMinimums[key] > 0) labels.push(`${label} ≥ ${dimensionMinimums[key]}`);
+    });
+    if (minScore > 0) labels.push(`总分 ≥ ${minScore}`);
+    return labels;
+  }, [dimensionMinimums, industry, minScore]);
   const addTickersToCompare = async (tickers: string[]) => {
     const requested = Array.from(new Set(tickers.map((ticker) => normalizeTicker(ticker, market)).filter((ticker) => isTicker(ticker, market)))).slice(0, maxCompareTickers);
     if (!requested.length) {
@@ -1201,7 +1154,6 @@ export default function App() {
           added = [...added, ...validScores.map((score) => score.ticker)];
           setUsingFallback(false);
           setLoadedIndustryKey("");
-          setIndustry("All");
         }
       } catch (error) {
         setLookupStatus("error");
@@ -1228,7 +1180,9 @@ export default function App() {
 
   const handleSearchChange = (value: string) => {
     setQuery(value);
-    if (value.trim()) setIndustry("All");
+    setLookupTicker("");
+    setLookupStatus("idle");
+    setLookupMessage("");
   };
   const handleIndustryChange = (value: string) => {
     setIndustry(value);
@@ -1244,7 +1198,17 @@ export default function App() {
     const nextSortKey = value as SortKey;
     setSortKey(nextSortKey);
     setSelectedTicker("");
-    if (nextSortKey === "totalScore") setMinDimensionScore(0);
+  };
+  const handleDimensionMinimumChange = (dimension: ScoreDimension, value: number) => {
+    setDimensionMinimums((current) => ({ ...current, [dimension]: value }));
+    setSelectedTicker("");
+  };
+  const handleClearFilters = () => {
+    setIndustry("All");
+    setDimensionMinimums(emptyDimensionMinimums);
+    setMinScore(0);
+    setSelectedTicker("");
+    setLoadedIndustryKey("");
   };
   const handleAddCurrentInput = () => {
     const raw = query.trim();
@@ -1369,18 +1333,55 @@ export default function App() {
         </section>
 
         <section className="control-group">
-          <label htmlFor="industry">行业模板</label>
+          <label htmlFor="industry">行业筛选</label>
           <div className="select-row">
             <Filter size={17} />
             <select id="industry" value={industry} onChange={(event) => handleIndustryChange(event.target.value)}>
               {activeIndustryOptions.map((item) => (
                 <option key={item} value={item}>
-                  {item === "All" ? "全部行业模板" : item}
+                  {item === "All" ? "全部行业" : item}
                 </option>
               ))}
             </select>
             <ChevronDown size={16} />
           </div>
+        </section>
+
+        <section className="control-group dimension-filter-group">
+          <div className="filter-section-head">
+            <label>多维筛选</label>
+            {activeFilterLabels.length ? (
+              <button type="button" onClick={handleClearFilters}>
+                清空条件
+              </button>
+            ) : null}
+          </div>
+          <div className="dimension-filter-grid">
+            {dimensions.map((dimension) => (
+              <label className={dimensionMinimums[dimension.key] > 0 ? "active" : ""} key={dimension.key}>
+                <span>{dimension.label}</span>
+                <select
+                  aria-label={`${dimension.label}最低分`}
+                  value={dimensionMinimums[dimension.key]}
+                  onChange={(event) => handleDimensionMinimumChange(dimension.key, Number(event.target.value))}
+                >
+                  <option value="0">不限</option>
+                  {[1, 2, 3, 4, 5].map((score) => (
+                    <option key={score} value={score}>
+                      ≥ {score}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </div>
+          {activeFilterLabels.length ? (
+            <div className="active-filter-list" aria-label="当前筛选条件">
+              {activeFilterLabels.map((label) => <span key={label}>{label}</span>)}
+            </div>
+          ) : (
+            <p className="control-note">各维度可同时设置最低分，结果需满足全部条件。</p>
+          )}
         </section>
 
         <section className="control-group">
@@ -1402,27 +1403,6 @@ export default function App() {
               : "图表和列表会按当前维度从高到低排序。"}
           </p>
         </section>
-
-        {isDimensionSort ? (
-          <section className="control-group">
-            <div className="slider-head">
-              <label htmlFor="min-dimension-score">当前维度最低分</label>
-              <strong>{minDimensionScore}</strong>
-            </div>
-            <input
-              id="min-dimension-score"
-              type="range"
-              min="0"
-              max="5"
-              step="1"
-              value={minDimensionScore}
-              onChange={(event) => {
-                setMinDimensionScore(Number(event.target.value));
-                setSelectedTicker("");
-              }}
-            />
-          </section>
-        ) : null}
 
         <section className="control-group">
           <div className="slider-head">
