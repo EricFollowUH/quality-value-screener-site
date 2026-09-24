@@ -1,3 +1,5 @@
+import { scoreValuation } from "./valuationModel.js";
+
 const DEFAULT_TICKERS = [
   "MSFT",
   "NVDA",
@@ -26,6 +28,7 @@ const DEFAULT_TICKERS = [
 
 const FEATURED_TICKERS = ["MSFT", "NVDA", "V", "GOOGL", "UNH"];
 const SEC_USER_AGENT = process.env.SEC_USER_AGENT || "quality-value-screener/1.0 contact@example.com";
+const YAHOO_USER_AGENT = "Mozilla/5.0 QualityValueScreener/1.0";
 
 const INDUSTRY_UNIVERSES = {
   "saas": ["MSFT", "CRM", "ADBE", "NOW", "ORCL", "WDAY", "INTU", "SNOW", "DDOG", "ZS", "NET", "TEAM"],
@@ -195,7 +198,7 @@ function latestInstant(companyFacts, keys, taxonomy = "us-gaap") {
 }
 
 async function fetchJson(url, headers = {}) {
-  const response = await fetch(url, { headers });
+  const response = await fetch(url, { headers, signal: AbortSignal.timeout(20_000) });
   if (!response.ok) throw new Error(`${url} returned ${response.status}`);
   return response.json();
 }
@@ -229,9 +232,46 @@ async function getTickerIndex() {
   return tickerIndexPromise;
 }
 
-async function fetchYahooPrice(ticker) {
+let yahooSessionPromise;
+
+function cookieHeader(response) {
+  const values = typeof response.headers.getSetCookie === "function"
+    ? response.headers.getSetCookie()
+    : [response.headers.get("set-cookie")].filter(Boolean);
+  return values.map((value) => value.split(";", 1)[0]).join("; ");
+}
+
+async function getYahooSession(forceRefresh = false) {
+  if (forceRefresh) yahooSessionPromise = null;
+  if (!yahooSessionPromise) {
+    yahooSessionPromise = (async () => {
+      const cookieResponse = await fetch("https://fc.yahoo.com/", {
+        redirect: "manual",
+        headers: { "User-Agent": YAHOO_USER_AGENT },
+        signal: AbortSignal.timeout(20_000)
+      });
+      const cookie = cookieHeader(cookieResponse);
+      if (!cookie) throw new Error("Yahoo session cookie was unavailable.");
+
+      const crumbResponse = await fetch("https://query2.finance.yahoo.com/v1/test/getcrumb", {
+        headers: { Cookie: cookie, "User-Agent": YAHOO_USER_AGENT },
+        signal: AbortSignal.timeout(20_000)
+      });
+      if (!crumbResponse.ok) throw new Error(`Yahoo crumb returned ${crumbResponse.status}`);
+      const crumb = (await crumbResponse.text()).trim();
+      if (!crumb || crumb.startsWith("{")) throw new Error("Yahoo crumb was invalid.");
+      return { cookie, crumb };
+    })().catch((error) => {
+      yahooSessionPromise = null;
+      throw error;
+    });
+  }
+  return yahooSessionPromise;
+}
+
+async function fetchYahooChartPrice(ticker) {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=1d&interval=1d`;
-  const payload = await fetchJson(url, { "User-Agent": "Mozilla/5.0 QualityValueScreener/1.0" });
+  const payload = await fetchJson(url, { "User-Agent": YAHOO_USER_AGENT });
   const meta = payload?.chart?.result?.[0]?.meta || {};
   const currentPrice = typeof meta.regularMarketPrice === "number" ? meta.regularMarketPrice : null;
   const previousClose = typeof meta.chartPreviousClose === "number" ? meta.chartPreviousClose : null;
@@ -243,6 +283,49 @@ async function fetchYahooPrice(ticker) {
     exchangeName: meta.fullExchangeName || meta.exchangeName || "",
     currency: meta.currency || "USD"
   };
+}
+
+async function fetchYahooQuote(ticker, retry = true) {
+  try {
+    const session = await getYahooSession(!retry);
+    const url = new URL("https://query2.finance.yahoo.com/v7/finance/quote");
+    url.searchParams.set("symbols", ticker);
+    url.searchParams.set("crumb", session.crumb);
+    const payload = await fetchJson(url.toString(), {
+      Cookie: session.cookie,
+      "User-Agent": YAHOO_USER_AGENT
+    });
+    const quote = payload?.quoteResponse?.result?.[0];
+    if (!quote) throw new Error("Yahoo quote did not include the requested ticker.");
+    return {
+      currentPrice: typeof quote.regularMarketPrice === "number" ? quote.regularMarketPrice : null,
+      previousClose: typeof quote.regularMarketPreviousClose === "number" ? quote.regularMarketPreviousClose : null,
+      percentChange: typeof quote.regularMarketChangePercent === "number" ? quote.regularMarketChangePercent / 100 : null,
+      quoteAsOf: typeof quote.regularMarketTime === "number" ? new Date(quote.regularMarketTime * 1000).toISOString() : null,
+      exchangeName: quote.fullExchangeName || quote.exchange || "",
+      currency: quote.currency || "USD",
+      marketCap: typeof quote.marketCap === "number" ? quote.marketCap : null,
+      sharesOutstanding: typeof quote.sharesOutstanding === "number" ? quote.sharesOutstanding : null,
+      forwardPE: typeof quote.forwardPE === "number" ? quote.forwardPE : null,
+      trailingPE: typeof quote.trailingPE === "number" ? quote.trailingPE : null,
+      forwardEps: typeof quote.epsForward === "number" ? quote.epsForward : null,
+      trailingEps: typeof quote.epsTrailingTwelveMonths === "number" ? quote.epsTrailingTwelveMonths : null,
+      priceToBook: typeof quote.priceToBook === "number" ? quote.priceToBook : null
+    };
+  } catch (error) {
+    if (retry) return fetchYahooQuote(ticker, false);
+    const fallback = await fetchYahooChartPrice(ticker);
+    return {
+      ...fallback,
+      marketCap: null,
+      sharesOutstanding: null,
+      forwardPE: null,
+      trailingPE: null,
+      forwardEps: null,
+      trailingEps: null,
+      priceToBook: null
+    };
+  }
 }
 
 async function fetchSecCompany(entry) {
@@ -313,24 +396,6 @@ function cashFlowScore(fcf, operatingCashflow, marketCap, revenue) {
   return [score, `FCF yield ${pct(fcfYield)}, FCF margin ${pct(fcfMargin)}, FCF/OCF ${pct(conversion)}.`];
 }
 
-function valuationScore(template, trailingPE, fcf, marketCap, revenueGrowth) {
-  const fcfYield = fcf != null && marketCap ? fcf / marketCap : null;
-  let score = 2;
-  if (marketCap == null) {
-    return [2, "Valuation is neutral because reliable live market cap/share-count data was unavailable from public sources."];
-  }
-  if (["Banks", "Insurance"].includes(template)) {
-    score = trailingPE != null && trailingPE < 12 ? 4 : trailingPE != null && trailingPE < 18 ? 3 : 2;
-  } else if (template === "Energy / oil and gas") {
-    score = fcfYield != null && fcfYield > 0.08 ? 5 : trailingPE != null && trailingPE < 14 ? 4 : 3;
-  } else if (trailingPE != null && trailingPE > 0) {
-    score = trailingPE < 18 ? 5 : trailingPE < 28 ? 4 : trailingPE < 45 ? 3 : trailingPE < 70 ? 2 : 1;
-    if (revenueGrowth != null && revenueGrowth > 0.3 && trailingPE < 45) score = Math.max(score, 4);
-    if (fcfYield != null && fcfYield > 0.05) score = Math.max(score, 4);
-  }
-  return [clamp(score), `Trailing P/E ${num(trailingPE)}, FCF yield ${pct(fcfYield)}; computed from latest public price and SEC facts.`];
-}
-
 function riskScore(totalCash, totalDebt, ebitda, debtToEquity) {
   const netDebtToEbitda = totalCash != null && totalDebt != null && ebitda ? (totalDebt - totalCash) / ebitda : null;
   let score = 3;
@@ -372,10 +437,10 @@ function extractMetrics(companyFacts, price) {
   const instantSharesFact = latestInstant(companyFacts, FACT_KEYS.shares, "dei");
   const dilutedShares = isRecentFact(dilutedSharesFact) ? dilutedSharesFact.val : null;
   const instantShares = isRecentFact(instantSharesFact) ? instantSharesFact.val : null;
-  const shares = dilutedShares ?? instantShares ?? null;
+  const shares = price.sharesOutstanding ?? dilutedShares ?? instantShares ?? null;
 
   const totalDebt = longDebt + currentDebt || null;
-  const marketCap = price.currentPrice != null && shares ? price.currentPrice * shares : null;
+  const marketCap = price.marketCap ?? (price.currentPrice != null && shares ? price.currentPrice * shares : null);
   const fcf = operatingCashflowTtm?.value != null
     ? operatingCashflowTtm.value - Math.abs(capexTtm?.value ?? 0)
     : null;
@@ -387,7 +452,11 @@ function extractMetrics(companyFacts, price) {
     previousClose: price.previousClose ?? null,
     percentChange: price.percentChange ?? null,
     marketCap,
-    trailingPE: marketCap && latestNetIncome ? marketCap / latestNetIncome : null,
+    forwardPE: price.forwardPE ?? null,
+    trailingPE: price.trailingPE ?? (marketCap && latestNetIncome ? marketCap / latestNetIncome : null),
+    forwardEps: price.forwardEps ?? null,
+    trailingEps: price.trailingEps ?? null,
+    priceToBook: price.priceToBook ?? (marketCap && equity ? marketCap / equity : null),
     revenueGrowth: latestRevenue != null && previousRevenue ? (latestRevenue - previousRevenue) / Math.abs(previousRevenue) : null,
     earningsGrowth: latestNetIncome != null && previousNetIncome ? (latestNetIncome - previousNetIncome) / Math.abs(previousNetIncome) : null,
     grossMargins: grossProfitTtm?.value != null && latestRevenue ? grossProfitTtm.value / latestRevenue : null,
@@ -410,7 +479,17 @@ function scoreCompany({ ticker, name, sector, industry, template, metrics }) {
   const [growth, growthReason] = growthScore(template, metrics.revenueGrowth, metrics.earningsGrowth);
   const [quality, qualityReason] = qualityScore(template, metrics.grossMargins, metrics.operatingMargins, metrics.returnOnEquity);
   const [cashFlow, cashFlowReason] = cashFlowScore(metrics.freeCashflow, metrics.operatingCashflow, metrics.marketCap, metrics.totalRevenue);
-  const [valuation, valuationReason] = valuationScore(template, metrics.trailingPE, metrics.freeCashflow, metrics.marketCap, metrics.revenueGrowth);
+  const fcfYield = metrics.freeCashflow != null && metrics.marketCap ? metrics.freeCashflow / metrics.marketCap : null;
+  const valuationResult = scoreValuation({
+    template,
+    forwardPE: metrics.forwardPE,
+    trailingPE: metrics.trailingPE,
+    fcfYield,
+    priceToBook: metrics.priceToBook,
+    marketCap: metrics.marketCap
+  });
+  const valuation = valuationResult.score;
+  const valuationReason = `${valuationResult.reason} FPE ${num(metrics.forwardPE)}, TTM P/E ${num(metrics.trailingPE)}, FCF yield ${pct(fcfYield)}.`;
   const [risk, riskReason] = riskScore(metrics.totalCash, metrics.totalDebt, metrics.ebitda, metrics.debtToEquity);
   const [sustainability, sustainabilityReason] = sustainabilityScore(template, metrics.grossMargins, metrics.operatingMargins, metrics.revenueGrowth, metrics.returnOnEquity);
 
@@ -476,7 +555,7 @@ export async function screenTickers(tickers = DEFAULT_TICKERS) {
       const entry = tickerIndex.get(ticker);
       if (!entry) return emptyScore(ticker, "Ticker was not found in the SEC company ticker index.");
       try {
-        const [price, sec] = await Promise.all([fetchYahooPrice(ticker), fetchSecCompany(entry)]);
+        const [price, sec] = await Promise.all([fetchYahooQuote(ticker), fetchSecCompany(entry)]);
         const fallbackMeta = METADATA[ticker] || ["Public market", sec.submissions?.sicDescription || "SEC filer"];
         const sector = fallbackMeta[0];
         const industry = fallbackMeta[1] || sec.submissions?.sicDescription || "";

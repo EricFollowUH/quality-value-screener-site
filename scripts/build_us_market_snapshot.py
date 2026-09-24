@@ -12,6 +12,7 @@ can refresh the full scoreable universe in a few minutes.
 
 from __future__ import annotations
 
+import http.cookiejar
 import json
 import math
 import os
@@ -38,6 +39,10 @@ NASDAQ_SCREENER_URL = (
     "https://api.nasdaq.com/api/screener/stocks"
     "?tableonly=true&limit=10000&offset=0&download=true"
 )
+YAHOO_COOKIE_URL = "https://fc.yahoo.com/"
+YAHOO_CRUMB_URL = "https://query2.finance.yahoo.com/v1/test/getcrumb"
+YAHOO_QUOTE_URL = "https://query2.finance.yahoo.com/v7/finance/quote"
+YAHOO_USER_AGENT = "Mozilla/5.0 QualityValueScreener/1.0"
 ANNUAL_FRAMES = ("CY2025", "CY2024")
 INSTANT_FRAMES = ("CY2026Q2I", "CY2025Q4I")
 ALLOWED_EXCHANGES = {"Nasdaq", "NYSE", "NYSE American", "Cboe BZX"}
@@ -184,6 +189,44 @@ def load_nasdaq_rows() -> dict[str, dict[str, Any]]:
     return output
 
 
+def load_yahoo_quotes(tickers: list[str]) -> dict[str, dict[str, Any]]:
+    """Load current price and consensus valuation fields in bounded batches."""
+    cookie_jar = http.cookiejar.CookieJar()
+    opener = urllib.request.build_opener(
+        urllib.request.HTTPCookieProcessor(cookie_jar),
+        urllib.request.HTTPSHandler(context=HTTPS_CONTEXT),
+    )
+    cookie_request = urllib.request.Request(YAHOO_COOKIE_URL, headers={"User-Agent": YAHOO_USER_AGENT})
+    try:
+        opener.open(cookie_request, timeout=30).read()
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404:
+            raise
+
+    crumb_request = urllib.request.Request(YAHOO_CRUMB_URL, headers={"User-Agent": YAHOO_USER_AGENT})
+    with opener.open(crumb_request, timeout=30) as response:
+        crumb = response.read().decode("utf-8").strip()
+    if not crumb or crumb.startswith("{"):
+        raise RuntimeError("Yahoo crumb was unavailable.")
+
+    quotes: dict[str, dict[str, Any]] = {}
+    for offset in range(0, len(tickers), 100):
+        symbols = tickers[offset : offset + 100]
+        query = urllib.parse.urlencode({"symbols": ",".join(symbols), "crumb": crumb})
+        request = urllib.request.Request(
+            f"{YAHOO_QUOTE_URL}?{query}",
+            headers={"User-Agent": YAHOO_USER_AGENT},
+        )
+        with opener.open(request, timeout=45) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        for row in payload.get("quoteResponse", {}).get("result", []) or []:
+            ticker = canonical_ticker(str(row.get("symbol") or ""))
+            if ticker:
+                quotes[ticker] = row
+        time.sleep(0.2)
+    return quotes
+
+
 def frame_url(tag: str, frame: str) -> str:
     return SEC_FRAME_URL.format(
         taxonomy="us-gaap",
@@ -312,21 +355,62 @@ def score_cashflow(fcf: float | None, market_cap: float | None, revenue: float |
     return score
 
 
-def score_valuation(template: str, pe: float | None, fcf_yield: float | None, market_cap: float | None, revenue_growth: float | None) -> int:
-    if market_cap is None:
+def lower_is_better(value: float | None, bands: tuple[float, float, float, float]) -> int | None:
+    if value is None or value <= 0:
+        return None
+    return 5 if value <= bands[0] else 4 if value <= bands[1] else 3 if value <= bands[2] else 2 if value <= bands[3] else 1
+
+
+def score_fcf_yield(value: float | None) -> int | None:
+    if value is None:
+        return None
+    return 5 if value >= 0.08 else 4 if value >= 0.05 else 3 if value >= 0.03 else 2 if value >= 0.015 else 1
+
+
+def weighted_score(parts: list[tuple[int | None, float]], fallback: int = 3) -> int:
+    available = [(score, weight) for score, weight in parts if score is not None]
+    if not available:
+        return fallback
+    total_weight = sum(weight for _, weight in available)
+    return clamp(sum(score * weight for score, weight in available) / total_weight)
+
+
+def pe_bands(template: str) -> tuple[tuple[float, float, float, float], tuple[float, float, float, float]]:
+    if template in {"AI / cloud / platform technology", "SaaS / enterprise software", "Semiconductors / chip design"}:
+        return (18, 25, 35, 50), (20, 30, 45, 65)
+    if template in {"Consumer brands / staples", "Payment networks / financial infrastructure", "Utilities"}:
+        return (13, 18, 25, 35), (15, 22, 30, 42)
+    return (14, 20, 28, 40), (16, 24, 34, 50)
+
+
+def score_valuation(
+    template: str,
+    forward_pe: float | None,
+    trailing_pe: float | None,
+    fcf_yield: float | None,
+    price_to_book: float | None,
+    market_cap: float | None,
+) -> int:
+    if template == "REITs":
+        return 3
+    if forward_pe is not None and forward_pe <= 0:
         return 2
+    if market_cap is None:
+        return 3
     if template in {"Banks", "Insurance"}:
-        return 4 if pe is not None and 0 < pe < 12 else 3 if pe is not None and 0 < pe < 18 else 2
-    if template == "Energy / oil and gas":
-        return 5 if fcf_yield is not None and fcf_yield > 0.08 else 4 if pe is not None and 0 < pe < 14 else 3
-    score = 2
-    if pe is not None and pe > 0:
-        score = 5 if pe < 18 else 4 if pe < 28 else 3 if pe < 45 else 2 if pe < 70 else 1
-        if revenue_growth is not None and revenue_growth > 0.30 and pe < 45:
-            score = max(score, 4)
-        if fcf_yield is not None and fcf_yield > 0.05:
-            score = max(score, 4)
-    return clamp(score)
+        pb_bands = (0.9, 1.3, 1.8, 2.5) if template == "Banks" else (1.2, 2, 3, 4)
+        return weighted_score([
+            (lower_is_better(forward_pe, (10, 12, 15, 18)), 0.50),
+            (lower_is_better(trailing_pe, (10, 15, 18, 21)), 0.20),
+            (lower_is_better(price_to_book, pb_bands), 0.30),
+        ])
+    forward_bands, trailing_bands = pe_bands(template)
+    weights = (0.25, 0.15, 0.60) if template == "Energy / oil and gas" else (0.60, 0.15, 0.25)
+    return weighted_score([
+        (lower_is_better(forward_pe, forward_bands), weights[0]),
+        (lower_is_better(trailing_pe, trailing_bands), weights[1]),
+        (score_fcf_yield(fcf_yield), weights[2]),
+    ])
 
 
 def score_risk(cash: float | None, debt: float | None, ebitda: float | None, debt_to_equity: float | None) -> int:
@@ -364,6 +448,7 @@ def frame_value(facts: dict[str, dict[str, Any]], frames: tuple[str, ...], metri
 def score_stock(
     sec_entry: dict[str, Any],
     quote: dict[str, Any],
+    yahoo_quote: dict[str, Any] | None,
     company_facts: dict[str, dict[str, Any]],
     generated_at: str,
 ) -> dict[str, Any] | None:
@@ -389,18 +474,27 @@ def score_stock(
     debt_parts = [value for value in (long_debt, current_debt) if value is not None]
     total_debt = sum(debt_parts) if debt_parts else None
 
-    current_price = finite(quote.get("lastsale"))
-    market_cap = finite(quote.get("marketCap"))
-    percent_change_raw = finite(quote.get("pctchange"))
+    yahoo_quote = yahoo_quote or {}
+    current_price = finite(yahoo_quote.get("regularMarketPrice")) or finite(quote.get("lastsale"))
+    market_cap = finite(yahoo_quote.get("marketCap")) or finite(quote.get("marketCap"))
+    percent_change_raw = finite(yahoo_quote.get("regularMarketChangePercent"))
+    if percent_change_raw is None:
+        percent_change_raw = finite(quote.get("pctchange"))
     percent_change = percent_change_raw / 100 if percent_change_raw is not None else None
-    previous_close = current_price / (1 + percent_change) if current_price and percent_change not in {None, -1} else None
+    previous_close = finite(yahoo_quote.get("regularMarketPreviousClose"))
+    if previous_close is None:
+        previous_close = current_price / (1 + percent_change) if current_price and percent_change not in {None, -1} else None
 
     revenue_growth = growth_rate(revenue, previous_revenue)
     earnings_growth = growth_rate(net_income, previous_income)
     gross_margin = ratio(gross_profit, revenue)
     operating_margin = ratio(operating_income, revenue)
     roe = ratio(net_income, equity)
-    trailing_pe = ratio(market_cap, net_income) if net_income is not None and net_income > 0 else None
+    forward_pe = finite(yahoo_quote.get("forwardPE"))
+    trailing_pe = finite(yahoo_quote.get("trailingPE"))
+    if trailing_pe is None:
+        trailing_pe = ratio(market_cap, net_income) if net_income is not None and net_income > 0 else None
+    price_to_book = finite(yahoo_quote.get("priceToBook")) or ratio(market_cap, equity)
     fcf_yield = ratio(free_cashflow, market_cap)
     debt_to_equity = ratio(total_debt, equity)
     ebitda_proxy = operating_income if operating_income is not None else net_income
@@ -411,7 +505,7 @@ def score_stock(
     growth = score_growth(template, revenue_growth, earnings_growth)
     quality = score_quality(template, gross_margin, operating_margin, roe)
     cashflow = score_cashflow(free_cashflow, market_cap, revenue)
-    valuation = score_valuation(template, trailing_pe, fcf_yield, market_cap, revenue_growth)
+    valuation = score_valuation(template, forward_pe, trailing_pe, fcf_yield, price_to_book, market_cap)
     risk = score_risk(cash, total_debt, ebitda_proxy, debt_to_equity)
     sustainability = score_sustainability(template, gross_margin, operating_margin, revenue_growth, roe)
 
@@ -420,7 +514,11 @@ def score_stock(
         "previousClose": previous_close,
         "percentChange": percent_change,
         "marketCap": market_cap,
+        "forwardPE": forward_pe,
         "trailingPE": trailing_pe,
+        "forwardEps": finite(yahoo_quote.get("epsForward")),
+        "trailingEps": finite(yahoo_quote.get("epsTrailingTwelveMonths")),
+        "priceToBook": price_to_book,
         "revenueGrowth": revenue_growth,
         "earningsGrowth": earnings_growth,
         "grossMargins": gross_margin,
@@ -438,6 +536,8 @@ def score_stock(
         "latestBalanceEnd": balance_end,
     }
 
+    quote_time = finite(yahoo_quote.get("regularMarketTime"))
+    quote_as_of = datetime.fromtimestamp(quote_time, timezone.utc).isoformat().replace("+00:00", "Z") if quote_time else generated_at
     return {
         "ticker": sec_entry["ticker"],
         "name": quote.get("name") or sec_entry["name"],
@@ -446,7 +546,7 @@ def score_stock(
         "template": template,
         "exchange": sec_entry["exchange"],
         "currentPrice": round(float(current_price), 4) if current_price is not None else None,
-        "quoteAsOf": generated_at,
+        "quoteAsOf": quote_as_of,
         "totalScore": growth + quality + cashflow + valuation + risk + sustainability,
         "growth": growth,
         "quality": quality,
@@ -470,6 +570,13 @@ def main() -> None:
     print("Loading Nasdaq listed-company snapshot...")
     nasdaq_rows = load_nasdaq_rows()
     print(f"Loaded {len(nasdaq_rows)} Nasdaq screener rows with price and market cap")
+    print("Loading Yahoo consensus valuation snapshot...")
+    try:
+        yahoo_quotes = load_yahoo_quotes(sorted(nasdaq_rows))
+        print(f"Loaded {len(yahoo_quotes)} Yahoo quote rows with FPE and TTM P/E fields")
+    except Exception as exc:
+        yahoo_quotes = {}
+        print(f"Yahoo valuation enrichment unavailable; using audited fallback inputs: {exc}")
     print("Loading SEC XBRL Frames...")
     facts = load_sec_frames()
 
@@ -486,7 +593,7 @@ def main() -> None:
             continue
         facts_count += 1
         joined_tickers.add(ticker)
-        score = score_stock(sec_entry, quote, company_facts, generated_at)
+        score = score_stock(sec_entry, quote, yahoo_quotes.get(ticker), company_facts, generated_at)
         if score:
             scores.append(score)
 
@@ -496,7 +603,7 @@ def main() -> None:
     snapshot = {
         "generatedAt": generated_at,
         "cadence": "weekly",
-        "source": "全市场可评分快照：SEC XBRL Frames 基本面 + Nasdaq 上市公司价格与行业快照。",
+        "source": "全市场可评分快照：SEC XBRL Frames 基本面 + Nasdaq 行业数据 + Yahoo 一致预期 FPE、TTM P/E 与市场价格。",
         "featuredTickers": [stock["ticker"] for stock in scores[:5]],
         "coverage": {
             "scope": "us-scoreable-market",
@@ -504,10 +611,13 @@ def main() -> None:
             "factsCount": facts_count,
             "pricedCount": priced_count,
             "scoredCount": len(scores),
+            "forwardPeCount": sum(1 for stock in scores if stock["metrics"].get("forwardPE") is not None),
+            "trailingPeCount": sum(1 for stock in scores if stock["metrics"].get("trailingPE") is not None),
             "excludedCount": listed_count - len(scores),
         },
         "sourceDates": {
             "priceAsOf": generated_at,
+            "consensusAsOf": generated_at,
             "fundamentalsAnnualFrames": list(ANNUAL_FRAMES),
             "balanceFrames": list(INSTANT_FRAMES),
         },

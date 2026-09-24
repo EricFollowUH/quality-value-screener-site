@@ -26,12 +26,14 @@ jobs:
           node-version: 22
           cache: npm
       - uses: actions/configure-pages@v5
+      - run: npm ci
+      - run: npm test
+      - run: python3 -m unittest tests/test_build_us_market_snapshot.py
       - name: Build full US scoreable-market snapshot
         env:
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
         run: python3 scripts/build_us_market_snapshot.py
       - run: python3 scripts/refresh_weekly_prices.py
-      - run: npm ci
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:

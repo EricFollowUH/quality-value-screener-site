@@ -6,9 +6,10 @@ Interactive stock research dashboard built from the `quality-value-stock-screene
 
 - Market universe: US exchange-listed SEC filers. ETFs, securities without standardized SEC facts, and securities without a usable market price are excluded and counted in `coverage`.
 - Fundamentals: SEC XBRL Frames API for annual fundamentals and recent balance-sheet values. The build does not download the multi-gigabyte SEC bulk archives.
-- Price and company metadata: Nasdaq's listed-company screener snapshot during the weekly build.
-- Market scoring: precomputed weekly with the same industry-aware growth, quality, cash flow, valuation, risk, and sustainability rules. `/api/snapshot` filters and sorts this full scoreable universe instead of rescoring 23 names per page request.
-- Single-stock detail: computed on demand from SEC Company Facts plus a current public market price.
+- Price and company metadata: Nasdaq's listed-company screener plus an authenticated Yahoo Finance quote session during the weekly build.
+- Valuation: consensus Forward P/E is the primary signal, with TTM P/E and FCF yield as checks. Banks and insurers also use P/B, energy weights FCF yield more heavily, and REIT valuation stays neutral until P/FFO or AFFO yield is available. If consensus FPE is missing, the response explicitly falls back to TTM P/E and FCF yield.
+- Market scoring: precomputed weekly with the same industry-aware growth, quality, cash flow, valuation, risk, and sustainability rules. `/api/snapshot` filters and sorts this full scoreable universe instead of rescoring a small fixed ticker list per page request.
+- Single-stock detail: computed on demand from SEC Company Facts plus current Yahoo price, Forward P/E, TTM P/E, and P/B fields.
 - Fallback: the frontend keeps a static weekly snapshot so the page still renders if no serverless host is available.
 
 ## Live API

@@ -270,8 +270,8 @@ const modelDimensionRows = [
   },
   {
     dimension: "低估值",
-    focus: "P/E、EV/EBITDA、FCF yield、行业专用倍数",
-    use: "评估价格是否给了安全边际，而不是机械寻找低倍数。"
+    focus: "FPE、TTM P/E、FCF yield、行业专用倍数",
+    use: "FPE 反映未来一致预期，TTM P/E 与现金流负责验证，避免机械寻找低倍数。"
   },
   {
     dimension: "低风险",
@@ -543,9 +543,22 @@ function compactReason(stock: StockScore, dimension: ScoreDimension) {
       return `${scoreTone(score)}。FCF 收益率 ${fmtPctMetric(fcfYield)}，FCF 利润率 ${fmtPctMetric(fcfMargin)}，现金转化 ${fmtPctMetric(conversion)}。`;
     }
     case "valuation": {
-      const pe = metrics.trailingPE ?? metrics.forwardPE ?? null;
+      const forwardPE = metrics.forwardPE ?? null;
+      const trailingPE = metrics.trailingPE ?? null;
       const fcfYield = metrics.fcfYield ?? (metrics.freeCashflow != null && metrics.marketCap ? metrics.freeCashflow / metrics.marketCap : null);
-      return `${scoreTone(score)}。P/E ${fmtMultiple(pe)}，FCF 收益率 ${fmtPctMetric(fcfYield)}，仅作相对吸引力参考。`;
+      if (stock.template === "REITs") {
+        return `${scoreTone(score)}。REIT 应优先使用 P/FFO 或 AFFO 收益率；当前缺少该口径，暂按中性处理。`;
+      }
+      if (forwardPE != null && forwardPE <= 0) {
+        return `${scoreTone(score)}。一致预期显示未来盈利为负，不能把 TTM P/E ${fmtMultiple(trailingPE)}视为低估。`;
+      }
+      if (["Banks", "Insurance"].includes(stock.template)) {
+        return `${scoreTone(score)}。FPE ${fmtMultiple(forwardPE)}（主），TTM P/E ${fmtMultiple(trailingPE)}，P/B ${fmtMultiple(metrics.priceToBook)}。`;
+      }
+      if (forwardPE == null) {
+        return `${scoreTone(score)}。FPE 暂无，按 TTM P/E ${fmtMultiple(trailingPE)}与 FCF 收益率 ${fmtPctMetric(fcfYield)}降级评估。`;
+      }
+      return `${scoreTone(score)}。FPE ${fmtMultiple(forwardPE)}（主），TTM P/E ${fmtMultiple(trailingPE)}（校验），FCF 收益率 ${fmtPctMetric(fcfYield)}。`;
     }
     case "risk": {
       const netDebtToEbitda =
@@ -1800,6 +1813,16 @@ export default function App() {
               </section>
 
               <section>
+                <h3>估值口径</h3>
+                <p>
+                  一般公司以前瞻市盈率 FPE 为主，TTM P/E 与 FCF 收益率用于交叉验证。FPE 来自市场一致预期，若暂时缺失，系统会明确降级到 TTM P/E 与 FCF 收益率，不会把静态年报 PE 冒充 FPE。
+                </p>
+                <p>
+                  银行和保险增加 P/B；能源提高 FCF 收益率权重；REIT 应使用 P/FFO 或 AFFO 收益率，缺少该数据时估值保持中性。增长分不再直接抬高估值分。
+                </p>
+              </section>
+
+              <section>
                 <h3>总分解释</h3>
                 <div className="model-table compact">
                   {modelTierRows.map((row) => (
@@ -1815,7 +1838,7 @@ export default function App() {
               <section>
                 <h3>数据与边界</h3>
                 <p>
-                  美股服务端优先使用 SEC fundamentals 与公开市场价格；A 股服务端优先使用东方财富/新浪公开行情，并叠加本地周度财务快照。若服务端不可用，页面使用本地兜底快照。所有结果都是公开数据研究排序，
+                  美股服务端使用 SEC fundamentals、Nasdaq 行业数据，以及 Yahoo 的市场价格、FPE 和 TTM P/E；A 股服务端优先使用东方财富/新浪公开行情，并叠加本地周度财务快照。若服务端不可用，页面使用本地兜底快照。所有结果都是公开数据研究排序，
                   不构成个性化投资、税务或交易建议。
                 </p>
                 <p>

@@ -7,3 +7,5 @@ desktop-check.png
 mobile-check.png
 .vercel/
 *.tsbuildinfo
+__pycache__/
+*.pyc
