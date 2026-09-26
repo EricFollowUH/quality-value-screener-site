@@ -30,6 +30,7 @@ import {
   YAxis
 } from "recharts";
 import { aShareFallbackSnapshot } from "./aShareFallbackData";
+import { resolveSnapshotScores } from "./compareData";
 import { fallbackSnapshot } from "./fallbackData";
 import type { ScoreDimension, Snapshot, StockScore } from "./types";
 
@@ -1136,10 +1137,28 @@ export default function App() {
       return;
     }
 
-    const knownTickers = new Set(snapshot.scores.map((item) => item.ticker));
-    const known = requested.filter((ticker) => knownTickers.has(ticker));
-    const missing = requested.filter((ticker) => !knownTickers.has(ticker));
-    let added = [...known];
+    let resolved = resolveSnapshotScores(requested, snapshot.scores, []);
+    if (market === "us") {
+      try {
+        const fullMarketSnapshot = await loadBundledMarketSnapshot();
+        resolved = resolveSnapshotScores(requested, snapshot.scores, fullMarketSnapshot.scores);
+      } catch {
+        // The live endpoint remains available when the bundled snapshot cannot be loaded.
+      }
+    }
+
+    if (resolved.found.length) {
+      setSnapshot((current) => {
+        const incoming = new Map(resolved.found.map((score) => [score.ticker, score]));
+        return {
+          ...current,
+          scores: [...resolved.found, ...current.scores.filter((item) => !incoming.has(item.ticker))]
+        };
+      });
+    }
+
+    const missing = resolved.missing;
+    let added = resolved.found.map((score) => score.ticker);
     let rejected: string[] = [];
 
     if (missing.length) {
