@@ -281,8 +281,8 @@ def load_sec_frames() -> dict[str, dict[str, dict[str, Any]]]:
     return facts
 
 
-def classify_template(sector: str, industry: str) -> str:
-    text = f"{sector} {industry}".lower()
+def classify_template(sector: str, industry: str, ticker: str = "", name: str = "") -> str:
+    text = f"{sector} {industry} {ticker} {name}".lower()
     if "real estate" in text or "reit" in text:
         return "REITs"
     if "bank" in text:
@@ -297,11 +297,33 @@ def classify_template(sector: str, industry: str) -> str:
         return "Energy / oil and gas"
     if any(word in text for word in ("semiconductor", "computer manufacturing")):
         return "Semiconductors / chip design"
-    if any(word in text for word in ("credit services", "payment", "transaction")):
+    if any(word in text for word in (
+        "credit services",
+        "payment",
+        "transaction",
+        "visa inc",
+        "mastercard",
+        "american express",
+        "paypal",
+        "fiserv",
+        "global payments",
+        "fidelity national information",
+    )):
         return "Payment networks / financial infrastructure"
+    if any(word in text for word in (
+        "alphabet inc",
+        "google",
+        "meta platforms",
+        "amazon.com",
+    )):
+        return "AI / cloud / platform technology"
     if any(word in text for word in ("software", "computer programming", "application")):
         return "SaaS / enterprise software"
-    if any(word in text for word in ("internet", "cloud", "interactive media")):
+    if any(word in text for word in (
+        "internet",
+        "cloud",
+        "interactive media",
+    )):
         return "AI / cloud / platform technology"
     if any(word in text for word in ("retail", "e-commerce", "department stores")):
         return "Retail / e-commerce"
@@ -309,6 +331,10 @@ def classify_template(sector: str, industry: str) -> str:
         return "Consumer brands / staples"
     if any(word in text for word in ("machinery", "equipment", "manufacturing", "industrial")):
         return "Industrials / manufacturing"
+    if sector.strip().lower() == "technology":
+        return "AI / cloud / platform technology"
+    if sector.strip().lower() in {"health care", "healthcare"}:
+        return "Healthcare"
     return "General quality/value"
 
 
@@ -501,7 +527,7 @@ def score_stock(
 
     sector = str(quote.get("sector") or "Public market")
     industry = str(quote.get("industry") or "Listed company")
-    template = classify_template(sector, industry)
+    template = classify_template(sector, industry, sec_entry["ticker"], quote.get("name") or sec_entry["name"])
     growth = score_growth(template, revenue_growth, earnings_growth)
     quality = score_quality(template, gross_margin, operating_margin, roe)
     cashflow = score_cashflow(free_cashflow, market_cap, revenue)

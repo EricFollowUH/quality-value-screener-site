@@ -37,5 +37,32 @@ class ValuationModelTests(unittest.TestCase):
         )
 
 
+class IndustryClassificationTests(unittest.TestCase):
+    def test_technology_sector_falls_back_to_ai_cloud(self):
+        self.assertEqual(
+            MODULE.classify_template("Technology", "EDP Services"),
+            "AI / cloud / platform technology",
+        )
+
+    def test_health_care_sector_falls_back_to_healthcare(self):
+        self.assertEqual(
+            MODULE.classify_template("Health Care", "Medical/Nursing Services"),
+            "Healthcare",
+        )
+
+    def test_payment_and_platform_company_names_override_broad_industries(self):
+        self.assertEqual(
+            MODULE.classify_template("Consumer Discretionary", "Business Services Visa Inc."),
+            "Payment networks / financial infrastructure",
+        )
+        self.assertEqual(
+            MODULE.classify_template(
+                "Technology",
+                "Computer Software: Programming Data Processing GOOGL Alphabet Inc.",
+            ),
+            "AI / cloud / platform technology",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
