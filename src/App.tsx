@@ -30,7 +30,7 @@ import {
   YAxis
 } from "recharts";
 import { aShareFallbackSnapshot } from "./aShareFallbackData";
-import { resolveSnapshotScores } from "./compareData";
+import { mergeSnapshotQuote, resolveSnapshotScores } from "./compareData";
 import { fallbackSnapshot } from "./fallbackData";
 import type { ScoreDimension, Snapshot, StockScore } from "./types";
 
@@ -1155,6 +1155,28 @@ export default function App() {
           scores: [...resolved.found, ...current.scores.filter((item) => !incoming.has(item.ticker))]
         };
       });
+
+      if (market === "us") {
+        const refreshTickers = resolved.found.map((score) => score.ticker);
+        void fetch(`${apiBase}${snapshotEndpoint(market)}?tickers=${encodeURIComponent(refreshTickers.join(","))}`)
+          .then((response) => {
+            if (!response.ok) throw new Error("quote refresh unavailable");
+            return response.json() as Promise<Snapshot>;
+          })
+          .then((data) => {
+            const liveByTicker = new Map((data.scores || []).map((score) => [score.ticker, score]));
+            setSnapshot((current) => ({
+              ...current,
+              scores: current.scores.map((score) => {
+                const live = liveByTicker.get(score.ticker);
+                return live ? mergeSnapshotQuote(score, live) : score;
+              })
+            }));
+          })
+          .catch(() => {
+            // Snapshot values remain available when the quote refresh fails.
+          });
+      }
     }
 
     const missing = resolved.missing;

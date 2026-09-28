@@ -1,5 +1,7 @@
 import type { StockScore } from "./types";
 
+const quoteMetricKeys = ["previousClose", "percentChange"] as const;
+
 export function resolveSnapshotScores(
   tickers: string[],
   currentScores: StockScore[],
@@ -17,4 +19,19 @@ export function resolveSnapshotScores(
   }
 
   return { found, missing };
+}
+
+export function mergeSnapshotQuote(snapshotStock: StockScore, liveStock: StockScore) {
+  const metrics = { ...snapshotStock.metrics };
+  for (const key of quoteMetricKeys) {
+    const value = liveStock.metrics?.[key];
+    if (value != null) metrics[key] = value;
+  }
+
+  return {
+    ...snapshotStock,
+    currentPrice: liveStock.currentPrice ?? snapshotStock.currentPrice,
+    quoteAsOf: liveStock.quoteAsOf ?? snapshotStock.quoteAsOf,
+    metrics
+  };
 }
