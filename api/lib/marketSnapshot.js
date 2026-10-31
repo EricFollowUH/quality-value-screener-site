@@ -24,11 +24,8 @@ const CACHE_TTL_MS = 15 * 60 * 1000;
 let cachedSnapshot = null;
 let cachedAt = 0;
 
-function marketSnapshotUrl() {
-  if (process.env.US_MARKET_SNAPSHOT_URL) return process.env.US_MARKET_SNAPSHOT_URL;
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}/data/us-market-scores.json`;
-  }
+export function resolveMarketSnapshotUrl(env = process.env) {
+  if (env.US_MARKET_SNAPSHOT_URL) return env.US_MARKET_SNAPSHOT_URL;
   return DEFAULT_MARKET_SNAPSHOT_URL;
 }
 
@@ -49,7 +46,7 @@ function compareScores(a, b, sortKey) {
 export async function loadMarketSnapshot() {
   if (cachedSnapshot && Date.now() - cachedAt < CACHE_TTL_MS) return cachedSnapshot;
 
-  const url = marketSnapshotUrl();
+  const url = resolveMarketSnapshotUrl();
   const response = await fetch(url, {
     headers: { "User-Agent": "quality-value-screener/1.0" },
     signal: AbortSignal.timeout(20_000)

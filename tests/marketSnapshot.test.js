@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { queryMarketSnapshot } from "../api/lib/marketSnapshot.js";
+import { queryMarketSnapshot, resolveMarketSnapshotUrl } from "../api/lib/marketSnapshot.js";
 
 const snapshot = {
   generatedAt: "2026-09-23T12:00:00.000Z",
@@ -38,4 +38,21 @@ test("applies every selected dimension minimum independently of sorting", () => 
   });
 
   assert.deepEqual(result.scores.map((stock) => stock.ticker), ["GAMA", "ALFA"]);
+});
+
+test("uses the weekly published snapshot when running on Vercel", () => {
+  assert.equal(
+    resolveMarketSnapshotUrl({ VERCEL_URL: "quality-value-screener-site.vercel.app" }),
+    "https://ericfollowuh.github.io/quality-value-screener-site/data/us-market-scores.json"
+  );
+});
+
+test("allows an explicit snapshot URL to override the weekly source", () => {
+  assert.equal(
+    resolveMarketSnapshotUrl({
+      VERCEL_URL: "quality-value-screener-site.vercel.app",
+      US_MARKET_SNAPSHOT_URL: "https://example.com/current.json"
+    }),
+    "https://example.com/current.json"
+  );
 });
