@@ -1,3 +1,5 @@
+import bundledSnapshot from "../../public/data/us-market-scores.json" with { type: "json" };
+
 const DEFAULT_MARKET_SNAPSHOT_URL =
   "https://ericfollowuh.github.io/quality-value-screener-site/data/us-market-scores.json";
 
@@ -29,6 +31,11 @@ export function resolveMarketSnapshotUrl(env = process.env) {
   return DEFAULT_MARKET_SNAPSHOT_URL;
 }
 
+export function selectCompatibleSnapshot(remote, bundled = bundledSnapshot) {
+  if (remote?.modelVersion !== bundled.modelVersion || !remote?.scores?.length) return bundled;
+  return Date.parse(remote.generatedAt) >= Date.parse(bundled.generatedAt) ? remote : bundled;
+}
+
 function numberParam(value, fallback, minimum, maximum) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -47,15 +54,16 @@ export async function loadMarketSnapshot() {
   if (cachedSnapshot && Date.now() - cachedAt < CACHE_TTL_MS) return cachedSnapshot;
 
   const url = resolveMarketSnapshotUrl();
-  const response = await fetch(url, {
-    headers: { "User-Agent": "quality-value-screener/1.0" },
-    signal: AbortSignal.timeout(20_000)
-  });
-  if (!response.ok) throw new Error(`Market snapshot returned ${response.status}`);
-
-  const snapshot = await response.json();
-  if (!Array.isArray(snapshot?.scores) || snapshot.scores.length === 0) {
-    throw new Error("Market snapshot is empty or invalid.");
+  let snapshot = bundledSnapshot;
+  try {
+    const response = await fetch(url, {
+      headers: { "User-Agent": "quality-value-screener/1.0" },
+      signal: AbortSignal.timeout(20_000)
+    });
+    if (!response.ok) throw new Error(`Market snapshot returned ${response.status}`);
+    snapshot = selectCompatibleSnapshot(await response.json());
+  } catch (error) {
+    console.warn("Weekly source unavailable; serving the deployed versioned snapshot.", error.message);
   }
 
   cachedSnapshot = snapshot;

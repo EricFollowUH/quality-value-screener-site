@@ -14,6 +14,9 @@ export type StockScore = {
   template: string;
   currentPrice: number | null;
   quoteAsOf?: string | null;
+  modelVersion?: string;
+  reviewFlags?: string[];
+  highQualityEligible?: boolean;
   totalScore: number;
   growth: number;
   quality: number;

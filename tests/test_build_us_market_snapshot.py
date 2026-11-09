@@ -11,6 +11,18 @@ SPEC.loader.exec_module(MODULE)
 
 
 class ValuationModelTests(unittest.TestCase):
+    def test_snapshot_deducts_software_and_applies_microcap_gate(self):
+        facts = {MODULE.ANNUAL_FRAMES[0]: {k: {"value": v, "end": "2025-12-31"} for k, v in {
+            "revenue": 11.3e6, "netIncome": 6.8e6, "grossProfit": 9.2e6,
+            "operatingIncome": 3.25e6, "operatingCashflow": 4.073e6,
+            "capex": 12000, "capitalizedSoftware": 1.1e6}.items()}}
+        result = MODULE.score_stock({"ticker": "TEST", "name": "Test Games", "exchange": "Nasdaq"}, {"sector": "Technology", "industry": "Video Games", "marketCap": 19e6, "lastsale": 4.2}, {}, facts, "2026-11-09T00:00:00Z")
+        self.assertAlmostEqual(result["metrics"]["freeCashflow"], 2.961e6)
+        self.assertFalse(result["highQualityEligible"])
+        self.assertEqual(result["risk"], 1)
+        self.assertIsNone(result["metrics"]["trailingPE"])
+        self.assertIsNotNone(result["metrics"]["annualPE"])
+
     def test_forward_pe_is_primary(self):
         attractive = MODULE.score_valuation("General quality/value", 16, 25, 0.04, None, 100)
         expensive = MODULE.score_valuation("General quality/value", 45, 25, 0.04, None, 100)
@@ -38,6 +50,12 @@ class ValuationModelTests(unittest.TestCase):
 
 
 class IndustryClassificationTests(unittest.TestCase):
+    def test_games_are_not_enterprise_saas(self):
+        self.assertEqual(MODULE.classify_template("Technology", "Computer Software: Prepackaged Software", "MSGM", "Motorsport Games Inc."), "Games / interactive entertainment")
+
+    def test_loss_to_profit_is_not_a_normal_growth_rate(self):
+        self.assertIsNone(MODULE.growth_rate(100, -50))
+
     def test_technology_sector_falls_back_to_ai_cloud(self):
         self.assertEqual(
             MODULE.classify_template("Technology", "EDP Services"),

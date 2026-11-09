@@ -1,4 +1,5 @@
 import { scoreValuation } from "./valuationModel.js";
+import { applyModelGuardrails, classifyGames } from "./modelGuardrails.js";
 
 const DEFAULT_TICKERS = [
   "MSFT",
@@ -96,9 +97,9 @@ const FACT_KEYS = {
   operatingCashflow: ["NetCashProvidedByUsedInOperatingActivities"],
   capex: [
     "PaymentsToAcquirePropertyPlantAndEquipment",
-    "PaymentsToAcquireProductiveAssets",
     "CapitalExpenditures"
   ],
+  capitalizedSoftware: ["PaymentsToDevelopSoftware"],
   assets: ["Assets"],
   liabilities: ["Liabilities"],
   equity: ["StockholdersEquity", "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"],
@@ -340,7 +341,8 @@ async function fetchSecCompany(entry) {
   return { facts, submissions };
 }
 
-function classifyTemplate(sector, industry) {
+function classifyTemplate(sector, industry, name = "") {
+  if (classifyGames(sector, industry, name)) return "Games / interactive entertainment";
   const text = `${sector} ${industry}`.toLowerCase();
   if (text.includes("reit")) return "REITs";
   if (text.includes("bank")) return "Banks";
@@ -397,6 +399,7 @@ function cashFlowScore(fcf, operatingCashflow, marketCap, revenue) {
 }
 
 function riskScore(totalCash, totalDebt, ebitda, debtToEquity) {
+  if (ebitda != null && ebitda <= 0) return [2, "经营利润非正，杠杆比率不适用。"];
   const netDebtToEbitda = totalCash != null && totalDebt != null && ebitda ? (totalDebt - totalCash) / ebitda : null;
   let score = 3;
   if (netDebtToEbitda != null) score = netDebtToEbitda < 0 ? 5 : netDebtToEbitda < 1.5 ? 4 : netDebtToEbitda < 3 ? 3 : netDebtToEbitda < 5 ? 2 : 1;
@@ -414,13 +417,14 @@ function sustainabilityScore(template, grossMargin, operatingMargin, revenueGrow
   return [clamp(score), `Template ${template}; SEC margin profile and growth are used as first-pass moat proxies.`];
 }
 
-function extractMetrics(companyFacts, price) {
+export function extractMetrics(companyFacts, price) {
   const revenueTtm = trailingFourQuarters(companyFacts, FACT_KEYS.revenue);
   const netIncomeTtm = trailingFourQuarters(companyFacts, FACT_KEYS.netIncome);
   const grossProfitTtm = trailingFourQuarters(companyFacts, FACT_KEYS.grossProfit);
   const operatingIncomeTtm = trailingFourQuarters(companyFacts, FACT_KEYS.operatingIncome);
   const operatingCashflowTtm = trailingFourQuarters(companyFacts, FACT_KEYS.operatingCashflow);
   const capexTtm = trailingFourQuarters(companyFacts, FACT_KEYS.capex);
+  const softwareTtm = trailingFourQuarters(companyFacts, FACT_KEYS.capitalizedSoftware);
 
   const revenueAnnual = annualFacts(companyFacts, FACT_KEYS.revenue);
   const netIncomeAnnual = annualFacts(companyFacts, FACT_KEYS.netIncome);
@@ -441,27 +445,32 @@ function extractMetrics(companyFacts, price) {
 
   const totalDebt = longDebt + currentDebt || null;
   const marketCap = price.marketCap ?? (price.currentPrice != null && shares ? price.currentPrice * shares : null);
-  const fcf = operatingCashflowTtm?.value != null
-    ? operatingCashflowTtm.value - Math.abs(capexTtm?.value ?? 0)
+  const fcf = operatingCashflowTtm?.value != null && capexTtm?.value != null
+    ? operatingCashflowTtm.value - Math.abs(capexTtm.value) - Math.abs(softwareTtm?.value ?? 0)
     : null;
   const ebitdaProxy = operatingIncomeTtm?.value ?? latestNetIncome;
 
   return {
+    netIncome: latestNetIncome,
+    operatingIncome: operatingIncomeTtm?.value ?? null,
+    totalEquity: equity,
+    capex: capexTtm?.value != null ? Math.abs(capexTtm.value) : null,
+    capitalizedSoftware: softwareTtm?.value != null ? Math.abs(softwareTtm.value) : null,
     currentPrice: price.currentPrice,
     quoteAsOf: price.quoteAsOf ?? null,
     previousClose: price.previousClose ?? null,
     percentChange: price.percentChange ?? null,
     marketCap,
     forwardPE: price.forwardPE ?? null,
-    trailingPE: price.trailingPE ?? (marketCap && latestNetIncome ? marketCap / latestNetIncome : null),
+    trailingPE: price.trailingPE ?? (marketCap && netIncomeTtm?.value > 0 ? marketCap / netIncomeTtm.value : null),
     forwardEps: price.forwardEps ?? null,
     trailingEps: price.trailingEps ?? null,
     priceToBook: price.priceToBook ?? (marketCap && equity ? marketCap / equity : null),
     revenueGrowth: latestRevenue != null && previousRevenue ? (latestRevenue - previousRevenue) / Math.abs(previousRevenue) : null,
-    earningsGrowth: latestNetIncome != null && previousNetIncome ? (latestNetIncome - previousNetIncome) / Math.abs(previousNetIncome) : null,
+    earningsGrowth: latestNetIncome != null && previousNetIncome > 0 ? (latestNetIncome - previousNetIncome) / previousNetIncome : null,
     grossMargins: grossProfitTtm?.value != null && latestRevenue ? grossProfitTtm.value / latestRevenue : null,
     operatingMargins: operatingIncomeTtm?.value != null && latestRevenue ? operatingIncomeTtm.value / latestRevenue : null,
-    returnOnEquity: latestNetIncome != null && equity ? latestNetIncome / equity : null,
+    returnOnEquity: latestNetIncome != null && equity > 0 ? latestNetIncome / equity : null,
     freeCashflow: fcf,
     operatingCashflow: operatingCashflowTtm?.value ?? null,
     totalRevenue: latestRevenue,
@@ -474,7 +483,7 @@ function extractMetrics(companyFacts, price) {
   };
 }
 
-function scoreCompany({ ticker, name, sector, industry, template, metrics }) {
+export function scoreCompany({ ticker, name, sector, industry, template, metrics }) {
   const reasons = {};
   const [growth, growthReason] = growthScore(template, metrics.revenueGrowth, metrics.earningsGrowth);
   const [quality, qualityReason] = qualityScore(template, metrics.grossMargins, metrics.operatingMargins, metrics.returnOnEquity);
@@ -500,6 +509,8 @@ function scoreCompany({ ticker, name, sector, industry, template, metrics }) {
   reasons.risk = riskReason;
   reasons.sustainability = sustainabilityReason;
 
+  const guard = applyModelGuardrails(template, metrics, { growth, quality, cashFlow, valuation, risk, sustainability });
+
   return {
     ticker,
     name,
@@ -508,13 +519,11 @@ function scoreCompany({ ticker, name, sector, industry, template, metrics }) {
     template,
     currentPrice: metrics.currentPrice,
     quoteAsOf: metrics.quoteAsOf ?? null,
-    totalScore: growth + quality + cashFlow + valuation + risk + sustainability,
-    growth,
-    quality,
-    cashFlow,
-    valuation,
-    risk,
-    sustainability,
+    totalScore: Object.values(guard.scores).reduce((sum, value) => sum + value, 0),
+    ...guard.scores,
+    modelVersion: guard.modelVersion,
+    reviewFlags: guard.flags,
+    highQualityEligible: guard.highQualityEligible,
     reasons,
     metrics
   };
@@ -559,7 +568,7 @@ export async function screenTickers(tickers = DEFAULT_TICKERS) {
         const fallbackMeta = METADATA[ticker] || ["Public market", sec.submissions?.sicDescription || "SEC filer"];
         const sector = fallbackMeta[0];
         const industry = fallbackMeta[1] || sec.submissions?.sicDescription || "";
-        const template = classifyTemplate(sector, industry);
+        const template = classifyTemplate(sector, industry, sec.facts.entityName || entry.name);
         const metrics = extractMetrics(sec.facts, price);
         return scoreCompany({
           ticker,
