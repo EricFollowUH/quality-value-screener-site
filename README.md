@@ -58,3 +58,17 @@ SEC_USER_AGENT="quality-value-screener/1.0 your-email@example.com"
 ```
 
 If using the Vercel Git integration, connect this repository and Vercel will deploy the Vite frontend plus `/api/snapshot` serverless function.
+
+## Model v2.0
+
+The MSGM false-positive review is in [public/model-review-msgm.md](public/model-review-msgm.md).
+Both the Python market snapshot builder and JS live scorer apply
+`model-policy.json`. Automated moat proxies are capped at 3; high-quality
+labels require explicit eligibility, not just a total of 25. A-share scores
+remain on their existing calculation and do not receive an unverified v2 label.
+Run `npm test`, `python3 -m unittest tests/test_build_us_market_snapshot.py`,
+and `npm run build` before publication. Production deployment requires approval.
+The API accepts a weekly remote snapshot only when its model version matches
+the deployed model and it is at least as recent as the bundled snapshot.
+Otherwise it serves the deployment's bundled snapshot without changing its
+original data timestamp. Weekly automation must also be updated to v2.

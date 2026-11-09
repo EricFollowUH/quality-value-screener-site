@@ -1,0 +1,20 @@
+{
+  "version": "2.0.0",
+  "rules": [
+    { "field": "marketCap", "op": "lt", "value": 50000000, "caps": { "risk": 1, "valuation": 3 }, "block": true, "reason": "微盘股（市值低于5000万美元）：融资和流动性风险高，低倍数不等于低估。" },
+    { "field": "marketCap", "op": "lt", "value": 300000000, "caps": { "risk": 2 }, "block": true, "reason": "小市值（低于3亿美元）：需专项核查成交流动性、融资与股本变化。" },
+    { "field": "totalRevenue", "op": "lt", "value": 50000000, "caps": { "growth": 4, "quality": 3, "sustainability": 3 }, "block": true, "reason": "收入规模低于5000万美元：小基数增长和单年高利润率不足以证明成熟质量。" },
+    { "field": "nonOperatingShare", "op": "gt", "value": 0.3, "caps": { "quality": 3, "valuation": 3 }, "block": true, "reason": "净利润明显高于经营利润：存在非经营收益信号，需核对汇兑、处置和和解，非已完成扣非。" },
+    { "field": "totalEquity", "op": "lte", "value": 0, "caps": { "quality": 2, "risk": 2 }, "block": true, "reason": "净资产非正：ROE失去常规解释力，不得因负负得正获高分。" },
+    { "field": "equityToRevenue", "op": "lt", "value": 0.1, "caps": { "quality": 3 }, "block": true, "reason": "净资产相对收入很薄：高ROE可能由小分母放大，需要ROIC等证据复核。" },
+    { "field": "operatingIncome", "op": "lte", "value": 0, "caps": { "risk": 2 }, "block": true, "reason": "经营利润非正：不能以负的杠杆比率推断低风险。" },
+    { "field": "totalDebt", "op": "missing", "caps": { "risk": 2 }, "block": true, "reason": "债务口径缺失或未完整核实，不代表零债务。" },
+    { "field": "capex", "op": "missing", "nonFinancial": true, "caps": { "cashFlow": 3, "valuation": 3 }, "block": true, "reason": "资本开支缺失：FCF不可完整计算，不按零支出处理。" },
+    { "field": "softwareInvestmentMissing", "op": "eq", "value": true, "caps": { "cashFlow": 3, "valuation": 3 }, "block": true, "reason": "软件开发投资口径缺失：FCF可能遗漏资本化开发支出，须人工核查。" },
+    { "field": "freeCashflow", "op": "missing", "nonFinancial": true, "caps": { "cashFlow": 2 }, "block": true, "reason": "自由现金流缺失：不授予强现金流评级。" },
+    { "field": "forwardPE", "op": "missing", "caps": { "valuation": 3 }, "reason": "FPE缺失：估值降级使用历史盈利和现金流。" },
+    { "field": "potentialDilution", "op": "gt", "value": 0.2, "caps": { "risk": 2, "valuation": 3 }, "block": true, "reason": "已核实潜在新增股份超过当前股本20%：需复核完全摊薄估值。" },
+    { "field": "productConcentration", "op": "gt", "value": 0.5, "caps": { "risk": 2, "sustainability": 2 }, "block": true, "reason": "已核实单产品收入超过50%：产品生命周期和授权风险集中。" },
+    { "field": "channelConcentration", "op": "gt", "value": 0.5, "caps": { "risk": 2, "sustainability": 2 }, "block": true, "reason": "已核实单渠道收入超过50%：渠道议价和分销风险集中。" }
+  ]
+}

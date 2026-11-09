@@ -29,6 +29,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "public" / "data" / "us-market-scores.json"
+POLICY = json.loads((ROOT / "model-policy.json").read_text(encoding="utf-8"))
 SEC_USER_AGENT = os.environ.get(
     "SEC_USER_AGENT",
     "quality-value-screener/1.0 data-pipeline@example.com",
@@ -59,8 +60,8 @@ FLOW_FACTS = {
     "operatingCashflow": ("NetCashProvidedByUsedInOperatingActivities",),
     "capex": (
         "PaymentsToAcquirePropertyPlantAndEquipment",
-        "PaymentsToAcquireProductiveAssets",
     ),
+    "capitalizedSoftware": ("PaymentsToDevelopSoftware",),
 }
 
 INSTANT_FACTS = {
@@ -135,7 +136,7 @@ def rounded(value: float | None) -> float | None:
 
 
 def growth_rate(current: float | None, previous: float | None) -> float | None:
-    if current is None or previous in {None, 0}:
+    if current is None or previous is None or previous <= 0:
         return None
     return (current - previous) / abs(previous)
 
@@ -283,6 +284,8 @@ def load_sec_frames() -> dict[str, dict[str, dict[str, Any]]]:
 
 def classify_template(sector: str, industry: str, ticker: str = "", name: str = "") -> str:
     text = f"{sector} {industry} {ticker} {name}".lower()
+    if re.search(r"video games|electronic gaming|interactive entertainment|motorsport games", text) or ("software" in industry.lower() and re.search(r"\bgames\b", name.lower())):
+        return "Games / interactive entertainment"
     if "real estate" in text or "reit" in text:
         return "REITs"
     if "bank" in text:
@@ -440,6 +443,8 @@ def score_valuation(
 
 
 def score_risk(cash: float | None, debt: float | None, ebitda: float | None, debt_to_equity: float | None) -> int:
+    if ebitda is not None and ebitda <= 0:
+        return 2
     net_debt_to_ebitda = ratio((debt - cash) if debt is not None and cash is not None else None, ebitda)
     if net_debt_to_ebitda is not None:
         return 5 if net_debt_to_ebitda < 0 else 4 if net_debt_to_ebitda < 1.5 else 3 if net_debt_to_ebitda < 3 else 2 if net_debt_to_ebitda < 5 else 1
@@ -471,6 +476,33 @@ def frame_value(facts: dict[str, dict[str, Any]], frames: tuple[str, ...], metri
     return None, None
 
 
+def apply_model_guardrails(template, metrics, raw_scores):
+    scores = {**raw_scores, "sustainability": min(raw_scores["sustainability"], 3)}
+    software = any(word in template for word in ("SaaS", "Games", "platform technology"))
+    financial = template in {"Banks", "Insurance", "REITs"}
+    net, op = metrics.get("netIncome"), metrics.get("operatingIncome")
+    evidence = {**metrics,
+        "nonOperatingShare": (net - op) / net if not financial and net is not None and net > 0 and op is not None else None,
+        "equityToRevenue": ratio(metrics.get("totalEquity"), metrics.get("totalRevenue")),
+        "softwareInvestmentMissing": software and metrics.get("capitalizedSoftware") is None,
+    }
+    flags, blocked = [], False
+    for rule in POLICY["rules"]:
+        if financial and rule.get("nonFinancial"):
+            continue
+        value, target = evidence.get(rule["field"]), rule.get("value")
+        matches = value is None if rule["op"] == "missing" else value is not None and (
+            value < target if rule["op"] == "lt" else value <= target if rule["op"] == "lte"
+            else value > target if rule["op"] == "gt" else value == target)
+        if matches:
+            for key, cap in rule["caps"].items():
+                scores[key] = min(scores[key], cap)
+            flags.append(rule["reason"])
+            blocked = blocked or rule.get("block", False)
+    return {"modelVersion": POLICY["version"], "scores": scores, "flags": flags,
+            "highQualityEligible": not blocked and all(scores[key] >= 3 for key in ("quality", "risk", "sustainability"))}
+
+
 def score_stock(
     sec_entry: dict[str, Any],
     quote: dict[str, Any],
@@ -491,8 +523,10 @@ def score_stock(
     operating_income = finite(current.get("operatingIncome", {}).get("value"))
     operating_cashflow = finite(current.get("operatingCashflow", {}).get("value"))
     capex_raw = finite(current.get("capex", {}).get("value"))
-    capex = abs(capex_raw) if capex_raw is not None else 0.0
-    free_cashflow = operating_cashflow - capex if operating_cashflow is not None else None
+    capex = abs(capex_raw) if capex_raw is not None else None
+    software_raw = finite(current.get("capitalizedSoftware", {}).get("value"))
+    software_investment = abs(software_raw) if software_raw is not None else None
+    free_cashflow = operating_cashflow - capex - (software_investment or 0) if operating_cashflow is not None and capex is not None else None
     equity, balance_end = frame_value(company_facts, INSTANT_FRAMES, "equity")
     cash, _ = frame_value(company_facts, INSTANT_FRAMES, "cash")
     long_debt, _ = frame_value(company_facts, INSTANT_FRAMES, "longTermDebt")
@@ -515,11 +549,10 @@ def score_stock(
     earnings_growth = growth_rate(net_income, previous_income)
     gross_margin = ratio(gross_profit, revenue)
     operating_margin = ratio(operating_income, revenue)
-    roe = ratio(net_income, equity)
+    roe = ratio(net_income, equity) if equity is not None and equity > 0 else None
     forward_pe = finite(yahoo_quote.get("forwardPE"))
     trailing_pe = finite(yahoo_quote.get("trailingPE"))
-    if trailing_pe is None:
-        trailing_pe = ratio(market_cap, net_income) if net_income is not None and net_income > 0 else None
+    annual_pe = ratio(market_cap, net_income) if net_income is not None and net_income > 0 else None
     price_to_book = finite(yahoo_quote.get("priceToBook")) or ratio(market_cap, equity)
     fcf_yield = ratio(free_cashflow, market_cap)
     debt_to_equity = ratio(total_debt, equity)
@@ -537,11 +570,17 @@ def score_stock(
 
     fiscal_end = current.get("revenue", {}).get("end")
     metrics = {
+        "netIncome": net_income,
+        "operatingIncome": operating_income,
+        "totalEquity": equity,
+        "capex": capex,
+        "capitalizedSoftware": software_investment,
         "previousClose": previous_close,
         "percentChange": percent_change,
         "marketCap": market_cap,
         "forwardPE": forward_pe,
         "trailingPE": trailing_pe,
+        "annualPE": annual_pe,
         "forwardEps": finite(yahoo_quote.get("epsForward")),
         "trailingEps": finite(yahoo_quote.get("epsTrailingTwelveMonths")),
         "priceToBook": price_to_book,
@@ -562,6 +601,7 @@ def score_stock(
         "latestBalanceEnd": balance_end,
     }
 
+    guard = apply_model_guardrails(template, metrics, dict(growth=growth, quality=quality, cashFlow=cashflow, valuation=valuation, risk=risk, sustainability=sustainability))
     quote_time = finite(yahoo_quote.get("regularMarketTime"))
     quote_as_of = datetime.fromtimestamp(quote_time, timezone.utc).isoformat().replace("+00:00", "Z") if quote_time else generated_at
     return {
@@ -573,13 +613,11 @@ def score_stock(
         "exchange": sec_entry["exchange"],
         "currentPrice": round(float(current_price), 4) if current_price is not None else None,
         "quoteAsOf": quote_as_of,
-        "totalScore": growth + quality + cashflow + valuation + risk + sustainability,
-        "growth": growth,
-        "quality": quality,
-        "cashFlow": cashflow,
-        "valuation": valuation,
-        "risk": risk,
-        "sustainability": sustainability,
+        "totalScore": sum(guard["scores"].values()),
+        **guard["scores"],
+        "modelVersion": guard["modelVersion"],
+        "reviewFlags": guard["flags"],
+        "highQualityEligible": guard["highQualityEligible"],
         "reasons": {},
         "metrics": {
             key: rounded(value) if isinstance(value, (int, float)) else value
@@ -627,9 +665,10 @@ def main() -> None:
     priced_count = sum(1 for ticker in sec_tickers if ticker in nasdaq_rows)
     listed_count = len(sec_tickers)
     snapshot = {
+        "modelVersion": POLICY["version"],
         "generatedAt": generated_at,
         "cadence": "weekly",
-        "source": "全市场可评分快照：SEC XBRL Frames 基本面 + Nasdaq 行业数据 + Yahoo 一致预期 FPE、TTM P/E 与市场价格。",
+        "source": "全市场可评分快照 v2.0：SEC XBRL Frames 基本面 + Nasdaq 行业数据 + Yahoo FPE/TTM P/E。已应用证据与风险闸门；未覆盖的公告风险仍需人工复核。",
         "featuredTickers": [stock["ticker"] for stock in scores[:5]],
         "coverage": {
             "scope": "us-scoreable-market",

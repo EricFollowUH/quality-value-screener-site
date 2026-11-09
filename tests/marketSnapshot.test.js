@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { queryMarketSnapshot, resolveMarketSnapshotUrl } from "../api/lib/marketSnapshot.js";
+import { queryMarketSnapshot, resolveMarketSnapshotUrl, selectCompatibleSnapshot } from "../api/lib/marketSnapshot.js";
 
 const snapshot = {
   generatedAt: "2026-09-23T12:00:00.000Z",
@@ -16,6 +16,15 @@ const snapshot = {
     { ticker: "DELT", name: "Delta", template: "Semiconductors / chip design", totalScore: 20, growth: 4, quality: 3, cashFlow: 3, valuation: 3, risk: 4, sustainability: 3 }
   ]
 };
+
+test("old weekly model cannot overwrite the deployed v2 snapshot", () => {
+  const bundled = { ...snapshot, modelVersion: "2.0.0", generatedAt: "2026-11-09T18:22:36Z" };
+  assert.equal(selectCompatibleSnapshot(snapshot, bundled), bundled);
+  const newer = { ...bundled, generatedAt: "2026-11-16T12:00:00Z" };
+  assert.equal(selectCompatibleSnapshot(newer, bundled), newer);
+  const older = { ...bundled, generatedAt: "2026-11-01T12:00:00Z" };
+  assert.equal(selectCompatibleSnapshot(older, bundled), bundled);
+});
 
 test("combines industry and multiple dimension minimums", () => {
   const result = queryMarketSnapshot(snapshot, {

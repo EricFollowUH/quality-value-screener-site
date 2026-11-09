@@ -211,6 +211,7 @@ const aShareTemplateSearchKey: Record<string, string> = {
 
 const industryOptions = [
   "All",
+  "Games / interactive entertainment",
   "SaaS / enterprise software",
   "AI / cloud / platform technology",
   "Semiconductors / chip design",
@@ -424,8 +425,11 @@ const maxCompareTickers = 12;
 const usTickerPattern = /^[A-Z][A-Z0-9.-]{0,9}$/;
 const aShareTickerPattern = /^(00|30|60|68)\d{4}$/;
 
-function tier(score: number) {
-  if (score >= 25) return { label: "高质量候选", className: "tier-high" };
+function tier(stock: StockScore) {
+  const score = stock.totalScore;
+  if (score >= 25) return stock.highQualityEligible === true
+    ? { label: "高质量候选", className: "tier-high" }
+    : { label: "高分待核查", className: "tier-watch" };
   if (score >= 20) return { label: "有吸引力", className: "tier-mid" };
   if (score >= 15) return { label: "普通观察", className: "tier-watch" };
   return { label: "低优先级", className: "tier-low" };
@@ -1102,7 +1106,7 @@ export default function App() {
 
   const summary = useMemo(() => {
     const source = filtered;
-    const high = source.filter((item) => item.totalScore >= 25).length;
+    const high = source.filter((item) => item.totalScore >= 25 && item.highQualityEligible === true).length;
     const avg = source.reduce((sum, item) => sum + item.totalScore, 0) / Math.max(source.length, 1);
     const templates = new Set(source.map((item) => item.template)).size;
     return { high, avg, templates };
@@ -1508,7 +1512,7 @@ export default function App() {
           transition={{ duration: 0.45 }}
         >
           {featured.slice(0, 5).map((item) => {
-            const itemTier = tier(item.totalScore);
+            const itemTier = tier(item);
             const itemRankValue = sortValue(item, sortKey);
             const itemRankClass = isDimensionSort ? dimensionTierClass(itemRankValue) : itemTier.className;
             return (
@@ -1628,7 +1632,7 @@ export default function App() {
               <span>公开数据</span>
             </div>
             {filtered.map((item) => {
-              const itemTier = tier(item.totalScore);
+              const itemTier = tier(item);
               const itemRankValue = sortValue(item, sortKey);
               const itemRankClass = isDimensionSort ? dimensionTierClass(itemRankValue) : itemTier.className;
               return (
@@ -1688,7 +1692,7 @@ export default function App() {
                 <h2>{selected.ticker}</h2>
                 <p>{selected.name}</p>
               </div>
-              <span className={`score-badge ${tier(selected.totalScore).className}`}>{selected.totalScore}/30</span>
+              <span className={`score-badge ${tier(selected).className}`}>{selected.totalScore}/30</span>
             </div>
 
             <div className="detail-actions">
@@ -1763,6 +1767,14 @@ export default function App() {
                   {compactReason(selected, dimension.key)}
                 </p>
               ))}
+            </section>
+
+            <section className="reason-block">
+              <h3>模型核查 {selected.modelVersion ? `v${selected.modelVersion}` : "旧版"}</h3>
+              {selected.reviewFlags?.length ? selected.reviewFlags.map((flag) => <p key={flag}>{flag}</p>) : (
+                <p>未触发已覆盖的量化闸门，不代表没有风险。产品集中度、权证稀释和一次性损益仍需查阅公告。</p>
+              )}
+              <p>可持续分仅为财务代理，自动评分最高3分；4–5分需要留存、份额和授权等人工证据。缺失数据不等于零风险。</p>
             </section>
 
             <section className="risk-block">
@@ -1865,6 +1877,7 @@ export default function App() {
 
               <section>
                 <h3>总分解释</h3>
+                <p>v2.0：总分达到25分还不够。质量、风险、可持续均须至少3分，且不得触发证据或风险闸门，否则仅标为高分待核查。旧版快照不自动认定高质量。</p>
                 <div className="model-table compact">
                   {modelTierRows.map((row) => (
                     <div className="model-table-row" key={row.total}>
@@ -1874,6 +1887,13 @@ export default function App() {
                     </div>
                   ))}
                 </div>
+              </section>
+
+              <section>
+                <h3>MSGM误判复盘与v2修订</h3>
+                <p>游戏开发商被错分为企业SaaS；汇兑和和解收益、资本化开发支出、小净资产分母，使利润、ROE和FCF同时显得优秀。多个高分其实可能来自同一个会计因素，不能视为独立证据。</p>
+                <p>修订后，FCF扣除已披露软件开发投资；缺失不当作零；高净利润/经营利润差异触发复核；微盘、小收入基数和非正净资产设置分数上限；不再仅因科技行业和高毛利奖励护城河。</p>
+                <a href="/model-review-msgm.md" target="_blank" rel="noreferrer">完整案例、阈值和局限说明 <ExternalLink size={14} /></a>
               </section>
 
               <section>
