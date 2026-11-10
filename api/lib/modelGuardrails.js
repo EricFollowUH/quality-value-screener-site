@@ -9,8 +9,13 @@ export function applyModelGuardrails(template, metrics, rawScores) {
   const scores = { ...rawScores, sustainability: Math.min(rawScores.sustainability, 3) };
   const software = /SaaS|Games|platform technology/.test(template);
   const financial = ["Banks", "Insurance", "REITs"].includes(template);
+  const healthcare = template === 'Healthcare services / hospitals';
   const evidence = {
     ...metrics,
+    quarterGrowthMissing: metrics.quarterRevenueGrowth == null || metrics.quarterAgeDays == null || metrics.quarterAgeDays > 200,
+    leaseCoverageMissing: healthcare && (metrics.financeLeaseDebt == null || metrics.operatingLeaseDebt == null),
+    ownerCashCoverageMissing: healthcare && (metrics.financeLeasePrincipal == null || metrics.noncontrollingDistributions == null),
+    materialMinorityCash: metrics.noncontrollingDistributions != null && metrics.operatingCashflow > 0 && metrics.noncontrollingDistributions/metrics.operatingCashflow > .2,
     nonOperatingShare: !financial && metrics.netIncome > 0 && metrics.operatingIncome != null
       ? (metrics.netIncome - metrics.operatingIncome) / metrics.netIncome : null,
     equityToRevenue: metrics.totalEquity != null && metrics.totalRevenue > 0

@@ -19,6 +19,7 @@ import os
 import re
 import ssl
 import time
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -30,6 +31,9 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "public" / "data" / "us-market-scores.json"
 POLICY = json.loads((ROOT / "model-policy.json").read_text(encoding="utf-8"))
+sys.path.insert(0, str(ROOT))
+from scripts.financial_facts import SCHEMA, read_financials, refine_metrics
+RESEARCH = json.loads((ROOT / 'research-evidence.json').read_text(encoding='utf-8'))
 SEC_USER_AGENT = os.environ.get(
     "SEC_USER_AGENT",
     "quality-value-screener/1.0 data-pipeline@example.com",
@@ -44,8 +48,13 @@ YAHOO_COOKIE_URL = "https://fc.yahoo.com/"
 YAHOO_CRUMB_URL = "https://query2.finance.yahoo.com/v1/test/getcrumb"
 YAHOO_QUOTE_URL = "https://query2.finance.yahoo.com/v7/finance/quote"
 YAHOO_USER_AGENT = "Mozilla/5.0 QualityValueScreener/1.0"
-ANNUAL_FRAMES = ("CY2025", "CY2024")
-INSTANT_FRAMES = ("CY2026Q2I", "CY2025Q4I")
+TODAY = datetime.now(timezone.utc).date()
+ANNUAL_FRAMES = (f"CY{TODAY.year-1}", f"CY{TODAY.year-2}")
+LAST_QUARTER = (TODAY.month-1)//3
+QUARTER_YEAR = TODAY.year if LAST_QUARTER else TODAY.year-1
+QUARTER_NUMBER = LAST_QUARTER or 4
+RECENT_QUARTERS = [(QUARTER_YEAR-(QUARTER_NUMBER-i<=0), (QUARTER_NUMBER-i-1)%4+1) for i in range(2)]
+INSTANT_FRAMES = tuple(f'CY{year}Q{quarter}I' for year,quarter in RECENT_QUARTERS)
 ALLOWED_EXCHANGES = {"Nasdaq", "NYSE", "NYSE American", "Cboe BZX"}
 
 FLOW_FACTS = {
@@ -62,6 +71,8 @@ FLOW_FACTS = {
         "PaymentsToAcquirePropertyPlantAndEquipment",
     ),
     "capitalizedSoftware": ("PaymentsToDevelopSoftware",),
+    "financeLeasePrincipal": tuple(SCHEMA['financeLeasePrincipal']),
+    "noncontrollingDistributions": tuple(SCHEMA['noncontrollingDistributions']),
 }
 
 INSTANT_FACTS = {
@@ -79,9 +90,12 @@ INSTANT_FACTS = {
     ),
     "currentDebt": (
         "LongTermDebtAndFinanceLeaseObligationsCurrent",
-        "ShortTermBorrowings",
+        "LongTermDebtCurrent",
     ),
+    'shortTermDebt': ('ShortTermBorrowings',),
 }
+for key in ('financeLeaseCurrent','financeLeaseNoncurrent','operatingLeaseCurrent','operatingLeaseNoncurrent'):
+    INSTANT_FACTS[key] = tuple(SCHEMA[key])
 
 try:
     import certifi
@@ -279,11 +293,19 @@ def load_sec_frames() -> dict[str, dict[str, dict[str, Any]]]:
                 added = merge_frame(facts, metric, tag, frame)
                 print(f"SEC frame {request_number}/{requests_total}: {frame} {tag} ({added} added)")
                 time.sleep(0.12)
+    for year, quarter in RECENT_QUARTERS:
+        for y in (year,year-1):
+            frame=f'CY{y}Q{quarter}'
+            for tag in FLOW_FACTS['revenue']:
+                merge_frame(facts,'revenue',tag,frame)
+                time.sleep(.15)
     return facts
 
 
 def classify_template(sector: str, industry: str, ticker: str = "", name: str = "") -> str:
     text = f"{sector} {industry} {ticker} {name}".lower()
+    if re.search(r'\bhealth inc\b|hospital|medical/nursing services|healthcare services|health care services', text):
+        return 'Healthcare services / hospitals'
     if re.search(r"video games|electronic gaming|interactive entertainment|motorsport games", text) or ("software" in industry.lower() and re.search(r"\bgames\b", name.lower())):
         return "Games / interactive entertainment"
     if "real estate" in text or "reit" in text:
@@ -480,10 +502,15 @@ def apply_model_guardrails(template, metrics, raw_scores):
     scores = {**raw_scores, "sustainability": min(raw_scores["sustainability"], 3)}
     software = any(word in template for word in ("SaaS", "Games", "platform technology"))
     financial = template in {"Banks", "Insurance", "REITs"}
+    healthcare = template == 'Healthcare services / hospitals'
     net, op = metrics.get("netIncome"), metrics.get("operatingIncome")
     evidence = {**metrics,
+        'quarterGrowthMissing': metrics.get('quarterRevenueGrowth') is None or metrics.get('quarterAgeDays') is None or metrics['quarterAgeDays']>200,
+        'leaseCoverageMissing': healthcare and (metrics.get('financeLeaseDebt') is None or metrics.get('operatingLeaseDebt') is None),
+        'ownerCashCoverageMissing': healthcare and (metrics.get('financeLeasePrincipal') is None or metrics.get('noncontrollingDistributions') is None),
+        'materialMinorityCash': metrics.get('noncontrollingDistributions') is not None and (metrics.get('operatingCashflow') or 0)>0 and metrics['noncontrollingDistributions']/metrics['operatingCashflow']>.2,
         "nonOperatingShare": (net - op) / net if not financial and net is not None and net > 0 and op is not None else None,
-        "equityToRevenue": ratio(metrics.get("totalEquity"), metrics.get("totalRevenue")),
+        "equityToRevenue": ratio(metrics.get("totalEquity"), metrics.get("totalRevenue")) if (metrics.get('totalRevenue') or 0)>0 else None,
         "softwareInvestmentMissing": software and metrics.get("capitalizedSoftware") is None,
     }
     flags, blocked = [], False
@@ -509,6 +536,7 @@ def score_stock(
     yahoo_quote: dict[str, Any] | None,
     company_facts: dict[str, dict[str, Any]],
     generated_at: str,
+    full_company_facts: dict | None = None,
 ) -> dict[str, Any] | None:
     current = company_facts.get(ANNUAL_FRAMES[0], {})
     previous = company_facts.get(ANNUAL_FRAMES[1], {})
@@ -531,7 +559,8 @@ def score_stock(
     cash, _ = frame_value(company_facts, INSTANT_FRAMES, "cash")
     long_debt, _ = frame_value(company_facts, INSTANT_FRAMES, "longTermDebt")
     current_debt, _ = frame_value(company_facts, INSTANT_FRAMES, "currentDebt")
-    debt_parts = [value for value in (long_debt, current_debt) if value is not None]
+    short_debt, _ = frame_value(company_facts, INSTANT_FRAMES, 'shortTermDebt')
+    debt_parts = [value for value in (long_debt, current_debt, short_debt) if value is not None]
     total_debt = sum(debt_parts) if debt_parts else None
 
     yahoo_quote = yahoo_quote or {}
@@ -561,6 +590,10 @@ def score_stock(
     sector = str(quote.get("sector") or "Public market")
     industry = str(quote.get("industry") or "Listed company")
     template = classify_template(sector, industry, sec_entry["ticker"], quote.get("name") or sec_entry["name"])
+    if template=='Healthcare services / hospitals':
+        sector='Healthcare'
+        if industry=='Business Services':
+            industry=template
     growth = score_growth(template, revenue_growth, earnings_growth)
     quality = score_quality(template, gross_margin, operating_margin, roe)
     cashflow = score_cashflow(free_cashflow, market_cap, revenue)
@@ -599,26 +632,70 @@ def score_stock(
         "fcfYield": fcf_yield,
         "latestFiscalEnd": fiscal_end,
         "latestBalanceEnd": balance_end,
+        'fundamentalsBasis': 'annual',
     }
 
-    guard = apply_model_guardrails(template, metrics, dict(growth=growth, quality=quality, cashFlow=cashflow, valuation=valuation, risk=risk, sustainability=sustainability))
+    for year,quarter in RECENT_QUARTERS:
+        q=company_facts.get(f'CY{year}Q{quarter}',{}).get('revenue')
+        previous_q=company_facts.get(f'CY{year-1}Q{quarter}',{}).get('revenue')
+        if q and previous_q:
+            metrics.update(quarterRevenueGrowth=growth_rate(q['value'],previous_q['value']),latestQuarterEnd=q['end'],quarterAgeDays=(TODAY-datetime.fromisoformat(q['end']).date()).days)
+            break
+    for key in ('financeLeasePrincipal','noncontrollingDistributions'):
+        metrics[key]=finite(current.get(key,{}).get('value'))
+    lease,_=frame_value(company_facts,INSTANT_FRAMES,'financeLeaseNoncurrent')
+    lease_current,_=frame_value(company_facts,INSTANT_FRAMES,'financeLeaseCurrent')
+    operating_lease,_=frame_value(company_facts,INSTANT_FRAMES,'operatingLeaseNoncurrent')
+    operating_current,_=frame_value(company_facts,INSTANT_FRAMES,'operatingLeaseCurrent')
+    metrics['financeLeaseDebt']=sum(x for x in (lease,lease_current) if x is not None) if lease is not None or lease_current is not None else None
+    metrics['operatingLeaseDebt']=sum(x for x in (operating_lease,operating_current) if x is not None) if operating_lease is not None or operating_current is not None else None
+    # Combined debt tags already include finance leases; add only uncovered sides.
+    extra_lease=sum(value or 0 for value,key in ((lease,'longTermDebt'),(lease_current,'currentDebt')) if 'FinanceLease' not in str(next((company_facts.get(f,{}).get(key,{}).get('tag') for f in INSTANT_FRAMES if key in company_facts.get(f,{})),'')))
+    if total_debt is not None:
+        metrics['totalDebt']=total_debt+extra_lease
+    metrics['ownerCashflow']=free_cashflow-abs(metrics['financeLeasePrincipal'])-abs(metrics['noncontrollingDistributions']) if free_cashflow is not None and metrics['financeLeasePrincipal'] is not None and metrics['noncontrollingDistributions'] is not None else None
+    metrics['fcfYield']=ratio(metrics['ownerCashflow'] if metrics['ownerCashflow'] is not None else free_cashflow,market_cap)
+    if full_company_facts:
+        metrics=refine_metrics(metrics,read_financials(full_company_facts),generated_at)
+    evaluated=evaluate_metrics(sec_entry['ticker'],template,metrics,generated_at)
     quote_time = finite(yahoo_quote.get("regularMarketTime"))
-    quote_as_of = datetime.fromtimestamp(quote_time, timezone.utc).isoformat().replace("+00:00", "Z") if quote_time else generated_at
+    quote_as_of = datetime.fromtimestamp(quote_time, timezone.utc).isoformat().replace("+00:00", "Z") if quote_time else quote.get('quoteAsOf') or generated_at
     return {
-        "ticker": sec_entry["ticker"],
-        "name": quote.get("name") or sec_entry["name"],
-        "sector": sector,
-        "industry": industry,
-        "template": template,
-        "exchange": sec_entry["exchange"],
+        "ticker": sec_entry["ticker"], "name": quote.get("name") or sec_entry["name"],
+        "sector": sector, "industry": industry, "template": template, "exchange": sec_entry["exchange"],
         "currentPrice": round(float(current_price), 4) if current_price is not None else None,
-        "quoteAsOf": quote_as_of,
+        "quoteAsOf": quote_as_of, "reasons": {}, **evaluated,
+    }
+
+
+def evaluate_metrics(ticker, template, metrics, generated_at):
+    metrics=dict(metrics)
+    metrics.pop('researchNeedsRefresh',None)
+    review=RESEARCH.get(ticker)
+    sources=[]
+    if review:
+        sources=review['sources']
+        if generated_at[:10]<=review['expiresAt'] and metrics.get('latestFiscalEnd')==review['periodEnd']:
+            metrics.update(review['metrics'])
+            metrics['noncashReversalShare']=ratio(review['metrics']['noncashReversalParentImpact'],metrics.get('latestPeriodNetIncome'))
+        else:
+            metrics['researchNeedsRefresh']=1
+    growth=score_growth(template,metrics.get('quarterRevenueGrowth'),None)
+    quality=score_quality(template,metrics.get('grossMargins'),metrics.get('operatingMargins'),metrics.get('returnOnEquity'))
+    cashflow=score_cashflow(metrics.get('ownerCashflow') if metrics.get('ownerCashflow') is not None else metrics.get('freeCashflow'),metrics.get('marketCap'),metrics.get('totalRevenue'))
+    valuation=score_valuation(template,metrics.get('forwardPE'),metrics.get('trailingPE'),metrics.get('fcfYield'),metrics.get('priceToBook'),metrics.get('marketCap'))
+    risk=score_risk(metrics.get('totalCash'),metrics.get('totalDebt'),metrics.get('ebitda'),metrics.get('debtToEquity'))
+    sustainability=score_sustainability(template,metrics.get('grossMargins'),metrics.get('operatingMargins'),metrics.get('quarterRevenueGrowth'),metrics.get('returnOnEquity'))
+
+    metrics={key:rounded(value) if isinstance(value,(int,float)) else value for key,value in metrics.items()}
+    guard = apply_model_guardrails(template, metrics, dict(growth=growth, quality=quality, cashFlow=cashflow, valuation=valuation, risk=risk, sustainability=sustainability))
+    return {
         "totalScore": sum(guard["scores"].values()),
         **guard["scores"],
         "modelVersion": guard["modelVersion"],
         "reviewFlags": guard["flags"],
         "highQualityEligible": guard["highQualityEligible"],
-        "reasons": {},
+        'evidenceSources': sources,
         "metrics": {
             key: rounded(value) if isinstance(value, (int, float)) else value
             for key, value in metrics.items()
@@ -632,7 +709,14 @@ def main() -> None:
     sec_tickers, cik_to_ticker = load_sec_tickers()
     print(f"Loaded {len(sec_tickers)} exchange-listed SEC tickers")
     print("Loading Nasdaq listed-company snapshot...")
-    nasdaq_rows = load_nasdaq_rows()
+    metadata_fallback=False
+    try:
+        nasdaq_rows = load_nasdaq_rows()
+    except Exception as exc:
+        print(f'Nasdaq metadata unavailable; retaining explicitly dated published universe: {exc}')
+        previous=json.loads(OUTPUT.read_text(encoding='utf-8'))
+        nasdaq_rows={s['ticker']:dict(name=s['name'],sector=s['sector'],industry=s['industry'],lastsale=s['currentPrice'],marketCap=s['metrics'].get('marketCap'),quoteAsOf=s.get('quoteAsOf')) for s in previous['scores']}
+        metadata_fallback=True
     print(f"Loaded {len(nasdaq_rows)} Nasdaq screener rows with price and market cap")
     print("Loading Yahoo consensus valuation snapshot...")
     try:
@@ -662,13 +746,31 @@ def main() -> None:
             scores.append(score)
 
     scores.sort(key=lambda item: (-item["totalScore"], item["ticker"]))
+    enrich_tickers=set(stock['ticker'] for stock in scores[:50]) | set(RESEARCH)
+    enriched=0
+    for index,stock in enumerate(scores):
+        ticker=stock['ticker']
+        if ticker not in enrich_tickers:
+            continue
+        try:
+            cik=sec_tickers[ticker]['cik']
+            company=request_json(f'https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json',sec=True)
+            revised=score_stock(sec_tickers[ticker],nasdaq_rows[ticker],yahoo_quotes.get(ticker),facts[cik],generated_at,company)
+            if revised:
+                scores[index]=revised
+                enriched+=1
+            print(f'Enriched aligned company facts: {ticker}')
+        except Exception as exc:
+            print(f'Company enrichment unavailable for {ticker}: {exc}')
+        time.sleep(.15)
+    scores.sort(key=lambda item: (-item["totalScore"], item["ticker"]))
     priced_count = sum(1 for ticker in sec_tickers if ticker in nasdaq_rows)
     listed_count = len(sec_tickers)
     snapshot = {
         "modelVersion": POLICY["version"],
         "generatedAt": generated_at,
         "cadence": "weekly",
-        "source": "全市场可评分快照 v2.0：SEC XBRL Frames 基本面 + Nasdaq 行业数据 + Yahoo FPE/TTM P/E。已应用证据与风险闸门；未覆盖的公告风险仍需人工复核。",
+        "source": "全市场快照 v2.1：季度同比、租赁与股东现金闸门；高分候选补充逐公司对齐财报。年报代理与TTM分别标注。" + (' Nasdaq元数据暂不可用，覆盖池沿用上次发布记录；未获取新行情的保留原时间。' if metadata_fallback else ''),
         "featuredTickers": [stock["ticker"] for stock in scores[:5]],
         "coverage": {
             "scope": "us-scoreable-market",
@@ -676,13 +778,15 @@ def main() -> None:
             "factsCount": facts_count,
             "pricedCount": priced_count,
             "scoredCount": len(scores),
+            'alignedCompanyCount': enriched,
+            'metadataFallback': metadata_fallback,
             "forwardPeCount": sum(1 for stock in scores if stock["metrics"].get("forwardPE") is not None),
             "trailingPeCount": sum(1 for stock in scores if stock["metrics"].get("trailingPE") is not None),
             "excludedCount": listed_count - len(scores),
         },
         "sourceDates": {
-            "priceAsOf": generated_at,
-            "consensusAsOf": generated_at,
+            "priceAsOf": max((s.get('quoteAsOf') or '' for s in scores),default=None),
+            "consensusAsOf": generated_at if yahoo_quotes else None,
             "fundamentalsAnnualFrames": list(ANNUAL_FRAMES),
             "balanceFrames": list(INSTANT_FRAMES),
         },

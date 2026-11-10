@@ -1,0 +1,21 @@
+{
+  "revenue": ["RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues", "SalesRevenueNet"],
+  "netIncome": ["NetIncomeLoss"],
+  "grossProfit": ["GrossProfit"],
+  "operatingIncome": ["OperatingIncomeLoss"],
+  "operatingCashflow": ["NetCashProvidedByUsedInOperatingActivities"],
+  "capex": ["PaymentsToAcquirePropertyPlantAndEquipment"],
+  "capitalizedSoftware": ["PaymentsToDevelopSoftware"],
+  "financeLeasePrincipal": ["FinanceLeasePrincipalPayments", "CapitalLeasePrincipalPayments"],
+  "noncontrollingDistributions": ["PaymentsOfDividendsNoncontrollingInterest", "PaymentsToMinorityShareholders"],
+  "noncontrollingIncome": ["NetIncomeLossAttributableToNoncontrollingInterest"],
+  "cash": ["CashAndCashEquivalentsAtCarryingValue"],
+  "equity": ["StockholdersEquity"],
+  "longTermDebt": ["LongTermDebtNoncurrent"],
+  "currentDebt": ["LongTermDebtCurrent"],
+  "shortTermDebt": ["ShortTermBorrowings"],
+  "financeLeaseCurrent": ["FinanceLeaseLiabilityCurrent", "CapitalLeaseObligationsCurrent"],
+  "financeLeaseNoncurrent": ["FinanceLeaseLiabilityNoncurrent", "CapitalLeaseObligationsNoncurrent"],
+  "operatingLeaseCurrent": ["OperatingLeaseLiabilityCurrent"],
+  "operatingLeaseNoncurrent": ["OperatingLeaseLiabilityNoncurrent"]
+}

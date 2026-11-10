@@ -1,6 +1,14 @@
 {
-  "version": "2.0.0",
+  "version": "2.1.0",
   "rules": [
+    { "field": "quarterRevenueGrowth", "op": "lt", "value": -0.1, "caps": { "growth": 2 }, "block": true, "reason": "最新可比季度营收下滑超过10%：年报高增长不代表当前仍高增长。" },
+    { "field": "quarterGrowthMissing", "op": "eq", "value": true, "caps": { "growth": 3 }, "block": true, "reason": "最新季度同比缺失或超过200天：仅有年度代理，不能确认当前高增长。" },
+    { "field": "leaseCoverageMissing", "op": "eq", "value": true, "caps": { "risk": 3 }, "block": true, "reason": "医疗服务租赁口径未完整核实：银行借款少不能直接认定低风险。" },
+    { "field": "ownerCashCoverageMissing", "op": "eq", "value": true, "caps": { "cashFlow": 3, "valuation": 3 }, "block": true, "reason": "医疗服务股东现金口径未完整核实：需核对融资租赁本金与少数股东分配。" },
+    { "field": "materialMinorityCash", "op": "eq", "value": true, "caps": { "cashFlow": 4 }, "reason": "少数股东分配占经营现金流超过20%：合并现金流不能全部归于普通股股东。" },
+    { "field": "noncashReversalShare", "op": "gt", "value": 0.15, "caps": { "quality": 3, "valuation": 3 }, "block": true, "reason": "已核实非现金费用冲回对当期归母利润影响超过15%：需做正常化盈利复核。" },
+    { "field": "settlementDependent", "op": "eq", "value": 1, "caps": { "risk": 2, "sustainability": 3, "valuation": 3 }, "block": true, "reason": "已核实收入明显依赖保险争议结算：付款资格、政策和回收率需专项评估。" },
+    { "field": "researchNeedsRefresh", "op": "eq", "value": 1, "caps": { "quality": 3, "risk": 3 }, "block": true, "reason": "已有研究证据与当前财报期间不一致或已到期：暂停高质量资格，等待复核。" },
     { "field": "marketCap", "op": "lt", "value": 50000000, "caps": { "risk": 1, "valuation": 3 }, "block": true, "reason": "微盘股（市值低于5000万美元）：融资和流动性风险高，低倍数不等于低估。" },
     { "field": "marketCap", "op": "lt", "value": 300000000, "caps": { "risk": 2 }, "block": true, "reason": "小市值（低于3亿美元）：需专项核查成交流动性、融资与股本变化。" },
     { "field": "totalRevenue", "op": "lt", "value": 50000000, "caps": { "growth": 4, "quality": 3, "sustainability": 3 }, "block": true, "reason": "收入规模低于5000万美元：小基数增长和单年高利润率不足以证明成熟质量。" },

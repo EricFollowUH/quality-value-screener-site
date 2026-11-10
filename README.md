@@ -59,7 +59,15 @@ SEC_USER_AGENT="quality-value-screener/1.0 your-email@example.com"
 
 If using the Vercel Git integration, connect this repository and Vercel will deploy the Vite frontend plus `/api/snapshot` serverless function.
 
-## Model v2.0
+## Model v2.1
+
+See [the NUTX review](public/model-review-nutx.md). Quarterly growth is separate
+from annual proxies; aligned company facts use annual + YTD - prior YTD for
+TTM. The initial top 50 and researched names receive company-level enrichment.
+Lease debt, minority distributions and noncash estimate reversals are reviewed.
+Sourced facts in `research-evidence.json` expire; they contain no score overrides.
+If Nasdaq metadata is unavailable, coverage falls back to the published universe
+explicitly; failed quote refreshes preserve original quote timestamps.
 
 The MSGM false-positive review is in [public/model-review-msgm.md](public/model-review-msgm.md).
 Both the Python market snapshot builder and JS live scorer apply

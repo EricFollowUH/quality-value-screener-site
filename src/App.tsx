@@ -211,6 +211,7 @@ const aShareTemplateSearchKey: Record<string, string> = {
 
 const industryOptions = [
   "All",
+  "Healthcare services / hospitals",
   "Games / interactive entertainment",
   "SaaS / enterprise software",
   "AI / cloud / platform technology",
@@ -295,6 +296,10 @@ const modelTierRows = [
 ];
 
 const companyBriefs: Record<string, CompanyBrief> = {
+  NUTX: {
+    business: "美国医疗服务运营商，经营微型医院、专科医院和医生网络；保险账单结算及回款是核心经营变量。",
+    outlook: "取决于同院就诊量能否转化为稳定收入、IDR保险争议结算回收率，以及扣除租赁与少数股东分配后的现金。"
+  },
   "000333": {
     business: "家电和智能制造龙头，覆盖空调、厨电、机器人、工业自动化和海外业务。",
     outlook: "来自海外扩张、利润率修复、B 端工业技术和稳健分红，但需关注地产链需求。"
@@ -538,14 +543,14 @@ function compactReason(stock: StockScore, dimension: ScoreDimension) {
 
   switch (dimension) {
     case "growth":
-      return `${scoreTone(score)}。营收增速 ${fmtPctMetric(metrics.revenueGrowth)}，利润增速 ${fmtPctMetric(metrics.earningsGrowth)}。`;
+      return `${scoreTone(score)}。最新可比季度营收同比 ${fmtPctMetric(metrics.quarterRevenueGrowth)}，利润同比 ${fmtPctMetric(metrics.quarterEarningsGrowth)}；缺失时不以旧年报增长替代。`;
     case "quality":
       return `${scoreTone(score)}。毛利率 ${fmtPctMetric(metrics.grossMargins)}，经营利润率 ${fmtPctMetric(metrics.operatingMargins)}，ROE ${fmtPctMetric(metrics.returnOnEquity)}。`;
     case "cashFlow": {
       const fcfYield = metrics.fcfYield ?? (metrics.freeCashflow != null && metrics.marketCap ? metrics.freeCashflow / metrics.marketCap : null);
       const fcfMargin = metrics.freeCashflow != null && metrics.totalRevenue ? metrics.freeCashflow / metrics.totalRevenue : null;
       const conversion = metrics.freeCashflow != null && metrics.operatingCashflow ? metrics.freeCashflow / metrics.operatingCashflow : null;
-      return `${scoreTone(score)}。FCF 收益率 ${fmtPctMetric(fcfYield)}，FCF 利润率 ${fmtPctMetric(fcfMargin)}，现金转化 ${fmtPctMetric(conversion)}。`;
+      return `${scoreTone(score)}。${metrics.ownerCashflow != null ? "股东现金代理" : "合并FCF"}收益率 ${fmtPctMetric(fcfYield)}，合并FCF利润率 ${fmtPctMetric(fcfMargin)}。融资租赁本金 ${fmtMoneyMetric(metrics.financeLeasePrincipal)}，少数股东分配 ${fmtMoneyMetric(metrics.noncontrollingDistributions)}；缺失不视为零。`;
     }
     case "valuation": {
       const forwardPE = metrics.forwardPE ?? null;
@@ -570,7 +575,7 @@ function compactReason(stock: StockScore, dimension: ScoreDimension) {
         metrics.totalCash != null && metrics.totalDebt != null && metrics.ebitda
           ? (metrics.totalDebt - metrics.totalCash) / metrics.ebitda
           : null;
-      return `${scoreTone(score)}。现金 ${fmtMoneyMetric(metrics.totalCash)}，债务 ${fmtMoneyMetric(metrics.totalDebt)}，净债务/EBITDA ${fmtMultiple(netDebtToEbitda)}。`;
+      return `${scoreTone(score)}。现金 ${fmtMoneyMetric(metrics.totalCash)}，含融资租赁的已识别债务 ${fmtMoneyMetric(metrics.totalDebt)}，净债务/经营利润代理 ${fmtMultiple(netDebtToEbitda)}；经营租赁另列 ${fmtMoneyMetric(metrics.operatingLeaseDebt)}。`;
     }
     case "sustainability":
       return `${scoreTone(score)}。按 ${stock.template} 模板评估，重点看增长、利润率和行业护城河能否延续。`;
@@ -1724,9 +1729,19 @@ export default function App() {
                 <small>{selected.quoteAsOf ? "来自行情源" : "使用快照时间兜底"}</small>
               </div>
               <div>
-                <span>评分时间</span>
+                <span>快照生成</span>
                 <strong>{fmtDateTime(snapshot.generatedAt)}</strong>
-                <small>{snapshot.cadence === "live" ? "服务端计算" : "本地兜底快照"}</small>
+                <small>{snapshot.cadence === "live" ? "服务端计算" : "周度评分；非财报期间"}</small>
+              </div>
+              <div>
+                <span>财务期间</span>
+                <strong>{String(selected.metrics.latestFiscalEnd || "暂无")}</strong>
+                <small>{String(selected.metrics.fundamentalsBasis || "annual") === "TTM" ? "滚动12个月；按可比YTD对齐" : "年度代理；不是最新季度或TTM"}</small>
+              </div>
+              <div>
+                <span>季度同比截至</span>
+                <strong>{String(selected.metrics.latestQuarterEnd || "暂无")}</strong>
+                <small>资产负债表截至 {String(selected.metrics.latestBalanceEnd || "暂无")}</small>
               </div>
             </section>
 
@@ -1775,6 +1790,8 @@ export default function App() {
                 <p>未触发已覆盖的量化闸门，不代表没有风险。产品集中度、权证稀释和一次性损益仍需查阅公告。</p>
               )}
               <p>可持续分仅为财务代理，自动评分最高3分；4–5分需要留存、份额和授权等人工证据。缺失数据不等于零风险。</p>
+              {selected.metrics.reviewOwnerCashflow != null ? <p>研究补充：截至 {String(selected.metrics.latestFiscalEnd)} 的 {selected.metrics.reviewCashflowMonths} 个月，经营现金流 {fmtMoneyMetric(selected.metrics.reviewOperatingCashflow)}，扣除资本开支、融资租赁本金及少数股东分配后约 {fmtMoneyMetric(selected.metrics.reviewOwnerCashflow)}。这是期间现金代理，不直接年化或混入TTM收益率。</p> : null}
+              {selected.evidenceSources?.map((source,index)=><p key={source}><a href={source} target="_blank" rel="noreferrer">研究来源 {index+1} <ExternalLink size={13}/></a></p>)}
             </section>
 
             <section className="risk-block">
@@ -1877,7 +1894,7 @@ export default function App() {
 
               <section>
                 <h3>总分解释</h3>
-                <p>v2.0：总分达到25分还不够。质量、风险、可持续均须至少3分，且不得触发证据或风险闸门，否则仅标为高分待核查。旧版快照不自动认定高质量。</p>
+                <p>v2.1：总分达到25分还不够。质量、风险、可持续均须至少3分，且不得触发证据或风险闸门，否则仅标为高分待核查。旧版快照不自动认定高质量。</p>
                 <div className="model-table compact">
                   {modelTierRows.map((row) => (
                     <div className="model-table-row" key={row.total}>
@@ -1894,6 +1911,13 @@ export default function App() {
                 <p>游戏开发商被错分为企业SaaS；汇兑和和解收益、资本化开发支出、小净资产分母，使利润、ROE和FCF同时显得优秀。多个高分其实可能来自同一个会计因素，不能视为独立证据。</p>
                 <p>修订后，FCF扣除已披露软件开发投资；缺失不当作零；高净利润/经营利润差异触发复核；微盘、小收入基数和非正净资产设置分数上限；不再仅因科技行业和高毛利奖励护城河。</p>
                 <a href="/model-review-msgm.md" target="_blank" rel="noreferrer">完整案例、阈值和局限说明 <ExternalLink size={14} /></a>
+              </section>
+
+              <section>
+                <h3>NUTX复盘与v2.1修订</h3>
+                <p>高年报增长不能替代最新季度同比；银行借款不能替代含融资租赁的债务；合并现金流不能全部归普通股股东。TTM使用“全年＋本期YTD－上年同期间YTD”，不再把三个季度相加称为TTM，也不混用不同截止日的利润和现金流。</p>
+                <p>全市场读取最近已披露可比季度；前50高分候选和已研究公司补充逐公司财报。未补充的保留年度代理标签。医疗服务增加租赁、少数股东与保险结算检查；非现金费用冲回须附来源，证据到期或出现新一期财报后暂停高质量资格。</p>
+                <a href="/model-review-nutx.md" target="_blank" rel="noreferrer">NUTX完整案例与模型边界 <ExternalLink size={14}/></a>
               </section>
 
               <section>
