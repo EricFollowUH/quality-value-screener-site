@@ -75,12 +75,12 @@ test("live score total is the sum of guarded dimensions", () => {
   assert.equal(stock.totalScore, ["growth", "quality", "cashFlow", "valuation", "risk", "sustainability"].reduce((sum, key) => sum + stock[key], 0));
   assert.equal(stock.highQualityEligible, false);
   assert.equal(stock.risk, 1);
-  assert.equal(stock.modelVersion, "2.1.0");
+  assert.equal(stock.modelVersion, "2.1.1");
 });
 
 test("published local snapshot obeys the same gates for every scored company", () => {
   const snapshot = JSON.parse(readFileSync(new URL("../public/data/us-market-scores.json", import.meta.url)));
-  assert.equal(snapshot.modelVersion, "2.1.0");
+  assert.equal(snapshot.modelVersion, "2.1.1");
   for (const stock of snapshot.scores) {
     const dimensions = Object.fromEntries(Object.keys(scores).map(key => [key, stock[key]]));
     const guarded = applyModelGuardrails(stock.template, stock.metrics, dimensions);
