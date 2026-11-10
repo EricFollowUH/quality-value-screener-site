@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { scoreValuation } from "../api/lib/valuationModel.js";
+import { scoreValuation } from "../server/lib/valuationModel.js";
 
 test("uses forward P/E as the primary valuation signal", () => {
   const attractive = scoreValuation({

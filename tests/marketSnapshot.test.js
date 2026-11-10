@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { queryMarketSnapshot, resolveMarketSnapshotUrl, selectCompatibleSnapshot } from "../api/lib/marketSnapshot.js";
+import { queryMarketSnapshot, resolveMarketSnapshotUrl, selectCompatibleSnapshot } from "../server/lib/marketSnapshot.js";
 
 const snapshot = {
   validation:{passed:true},

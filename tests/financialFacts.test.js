@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { trailingValue, latestQuarterGrowth, readFinancials } from '../api/lib/financialFacts.js';
-import { refineMetrics } from '../api/lib/refineMetrics.js';
-import { applyModelGuardrails } from '../api/lib/modelGuardrails.js';
-import { applyResearchEvidence } from '../api/lib/researchEvidence.js';
+import { trailingValue, latestQuarterGrowth, readFinancials } from '../server/lib/financialFacts.js';
+import { refineMetrics } from '../server/lib/refineMetrics.js';
+import { applyModelGuardrails } from '../server/lib/modelGuardrails.js';
+import { applyResearchEvidence } from '../server/lib/researchEvidence.js';
 import { spawnSync } from 'node:child_process';
-import { classifyTemplate } from '../api/lib/liveScreener.js';
+import { classifyTemplate } from '../server/lib/liveScreener.js';
 test('an insurer with Health in its name is not a hospital',()=>{
  assert.equal(classifyTemplate('Finance','Accident & Health Insurance','Oscar Health Inc.','OSCR'),'Insurance');
  assert.equal(classifyTemplate('Public market','Business Services','Nutex Health Inc.','NUTX'),'Healthcare services / hospitals');

@@ -1,5 +1,5 @@
-import { DEFAULT_TICKERS, FEATURED_TICKERS, resolveSearchUniverse, screenTickers } from "./lib/liveScreener.js";
-import { loadMarketSnapshot, queryMarketSnapshot } from "./lib/marketSnapshot.js";
+import { DEFAULT_TICKERS, FEATURED_TICKERS, resolveSearchUniverse, screenTickers } from "../server/lib/liveScreener.js";
+import { loadMarketSnapshot, queryMarketSnapshot } from "../server/lib/marketSnapshot.js";
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");

@@ -1,4 +1,4 @@
-import { searchCompanies } from "./lib/liveScreener.js";
+import { searchCompanies } from "../server/lib/liveScreener.js";
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
