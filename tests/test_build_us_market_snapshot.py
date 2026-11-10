@@ -19,7 +19,7 @@ class ValuationModelTests(unittest.TestCase):
         result = MODULE.score_stock({"ticker": "TEST", "name": "Test Games", "exchange": "Nasdaq"}, {"sector": "Technology", "industry": "Video Games", "marketCap": 19e6, "lastsale": 4.2}, {}, facts, "2026-11-09T00:00:00Z")
         self.assertAlmostEqual(result["metrics"]["freeCashflow"], 2.961e6)
         self.assertFalse(result["highQualityEligible"])
-        self.assertEqual(result["risk"], 1)
+        self.assertIsNone(result["risk"])
         self.assertIsNone(result["metrics"]["trailingPE"])
         self.assertIsNotNone(result["metrics"]["annualPE"])
 
@@ -62,10 +62,10 @@ class IndustryClassificationTests(unittest.TestCase):
     def test_loss_to_profit_is_not_a_normal_growth_rate(self):
         self.assertIsNone(MODULE.growth_rate(100, -50))
 
-    def test_technology_sector_falls_back_to_ai_cloud(self):
+    def test_broad_technology_sector_does_not_invent_an_ai_business(self):
         self.assertEqual(
             MODULE.classify_template("Technology", "EDP Services"),
-            "AI / cloud / platform technology",
+            "General quality/value",
         )
 
     def test_health_care_sector_falls_back_to_healthcare(self):

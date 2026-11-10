@@ -2,6 +2,7 @@ import { scoreValuation } from "./valuationModel.js";
 import { applyModelGuardrails, classifyGames } from "./modelGuardrails.js";
 import { readFinancials, trailingValue } from './financialFacts.js';
 import { refineMetrics } from './refineMetrics.js';
+import {scoreQuality} from './qualityModel.js';
 import { applyResearchEvidence, researchedTemplate } from './researchEvidence.js';
 
 const DEFAULT_TICKERS = [
@@ -352,7 +353,6 @@ export function classifyTemplate(sector, industry, name = "", ticker = '') {
   if (text.includes("retail") || text.includes("e-commerce")) return "Retail / e-commerce";
   if (text.includes("consumer defensive") || text.includes("household") || text.includes("beverages")) return "Consumer brands / staples";
   if (text.includes("industrial") || text.includes("manufacturing") || text.includes("equipment")) return "Industrials / manufacturing";
-  if (sector === "Technology") return "AI / cloud / platform technology";
   return "General quality/value";
 }
 
@@ -372,14 +372,7 @@ function growthScore(template, revenueGrowth, earningsGrowth) {
 }
 
 function qualityScore(template, grossMargin, operatingMargin, roe) {
-  let score = 0;
-  if (template === "Banks") {
-    score += roe != null && roe > 0.12 ? 3 : roe != null && roe > 0.08 ? 2 : 1;
-  } else {
-    if (grossMargin != null) score += grossMargin >= 0.7 ? 2 : grossMargin >= 0.4 ? 1 : 0;
-    if (operatingMargin != null) score += operatingMargin >= 0.25 ? 2 : operatingMargin >= 0.1 ? 1 : 0;
-    if (roe != null) score += roe >= 0.15 ? 1 : 0;
-  }
+  const score=scoreQuality(template,grossMargin,operatingMargin,roe);
   return [clamp(score), `Gross margin ${pct(grossMargin)}, operating margin ${pct(operatingMargin)}, ROE ${pct(roe)} from SEC facts.`];
 }
 
@@ -454,6 +447,7 @@ export function extractMetrics(companyFacts, price) {
     capitalizedSoftware: softwareTtm?.value != null ? Math.abs(softwareTtm.value) : null,
     currentPrice: price.currentPrice,
     quoteAsOf: price.quoteAsOf ?? null,
+    quoteAgeDays:price.quoteAsOf?(Date.now()-Date.parse(price.quoteAsOf))/86400000:999,
     previousClose: price.previousClose ?? null,
     percentChange: price.percentChange ?? null,
     marketCap,
@@ -493,7 +487,7 @@ export function scoreCompany({ ticker, name, sector, industry, template, metrics
   const fcfYield = metrics.fcfYield ?? null;
   const valuationResult = scoreValuation({
     template,
-    forwardPE: metrics.forwardPE,
+    forwardPE: metrics.forecastVerified===1 || metrics.forwardPE<=0 ? metrics.forwardPE : null,
     trailingPE: metrics.trailingPE,
     fcfYield,
     priceToBook: metrics.priceToBook,
@@ -521,11 +515,14 @@ export function scoreCompany({ ticker, name, sector, industry, template, metrics
     template,
     currentPrice: metrics.currentPrice,
     quoteAsOf: metrics.quoteAsOf ?? null,
-    totalScore: Object.values(guard.scores).reduce((sum, value) => sum + value, 0),
+    totalScore: guard.totalScore,
     ...guard.scores,
     modelVersion: guard.modelVersion,
     reviewFlags: guard.flags,
     highQualityEligible: guard.highQualityEligible,
+    rankEligible: guard.rankEligible,
+    dataQuality: guard.dataQuality,
+    metricSources:metrics.provenance??{},
     evidenceSources: research.sources,
     reasons,
     metrics
@@ -540,13 +537,16 @@ function emptyScore(ticker, message) {
     industry: "Unclassified",
     template: "General quality/value",
     currentPrice: null,
-    totalScore: 0,
-    growth: 0,
-    quality: 0,
-    cashFlow: 0,
-    valuation: 0,
-    risk: 0,
-    sustainability: 0,
+    error:message,
+    rankEligible:false,
+    highQualityEligible:false,
+    totalScore: null,
+    growth: null,
+    quality: null,
+    cashFlow: null,
+    valuation: null,
+    risk: null,
+    sustainability: null,
     reasons: {
       growth: message,
       quality: message,

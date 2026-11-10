@@ -33,6 +33,7 @@ export function resolveMarketSnapshotUrl(env = process.env) {
 
 export function selectCompatibleSnapshot(remote, bundled = bundledSnapshot) {
   if (remote?.modelVersion !== bundled.modelVersion || !remote?.scores?.length) return bundled;
+  if (remote.validation?.passed!==true) return bundled;
   return Date.parse(remote.generatedAt) >= Date.parse(bundled.generatedAt) ? remote : bundled;
 }
 
@@ -84,6 +85,8 @@ export function queryMarketSnapshot(snapshot, query = {}) {
 
   const scores = snapshot.scores
     .filter((stock) => {
+      if (!search && query.includeUnverified!=='true' && stock.rankEligible!==true) return false;
+      if (!search && query.includeUnverified!=='true' && snapshot.modelVersion==='2.2.0' && Date.now()-Date.parse(snapshot.generatedAt)>48*3600000) return false;
       if (Number(stock.totalScore || 0) < minScore) return false;
       if (sortKey !== "totalScore" && Number(stock[sortKey] || 0) < minDimensionScore) return false;
       if (DIMENSION_MINIMUM_PARAMS.some(([dimension]) => Number(stock[dimension] || 0) < dimensionMinimums[dimension])) return false;
@@ -103,6 +106,7 @@ export function queryMarketSnapshot(snapshot, query = {}) {
     coverage: {
       ...(snapshot.coverage || {}),
       matchedCount: scores.length,
+      rankEligibleCount: snapshot.scores.filter(s=>s.rankEligible===true).length,
       returnedCount: Math.min(scores.length, limit)
     },
     scores: scores.slice(0, limit)

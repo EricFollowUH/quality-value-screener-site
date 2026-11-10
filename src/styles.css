@@ -506,17 +506,18 @@ input[type="range"] {
 }
 
 .topbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0,1fr);
   align-items: flex-start;
   justify-content: space-between;
-  gap: 20px;
+  gap: 12px;
   margin-bottom: 22px;
 }
 
 .source-pill {
   display: inline-flex;
   align-items: center;
-  max-width: 340px;
+  max-width: 100%;
   gap: 7px;
   padding: 10px 12px;
   color: #344037;
@@ -526,6 +527,8 @@ input[type="range"] {
   font-size: 13px;
   font-weight: 700;
 }
+
+.topbar h2 { font-size:28px; line-height:1.2; }
 
 .source-pill span {
   line-height: 1.35;
@@ -932,7 +935,7 @@ button.score-row:hover {
 
 .dimension-item {
   display: grid;
-  grid-template-columns: 86px minmax(0, 1fr) 36px;
+  grid-template-columns: 86px minmax(0, 1fr) 64px;
   gap: 10px;
   align-items: center;
 }
@@ -1217,3 +1220,7 @@ button.score-row:hover {
     gap: 6px;
   }
 }
+.review-toggle { display:flex; align-items:center; gap:8px; font-size:13px; color:#53615c; margin:12px 0; }
+.review-toggle input { width:16px; height:16px; accent-color:#247d68; }
+.data-status { font-size:12px; color:#596860; margin:0 0 16px; line-height:1.6; }
+.data-warning { padding:12px; background:#fff0e9; color:#973c22; border-left:3px solid #b35029; font-size:13px; }

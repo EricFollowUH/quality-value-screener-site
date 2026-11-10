@@ -17,7 +17,7 @@ const score = (
   template,
   currentPrice,
   quoteAsOf: "2026-06-05T00:00:00.000Z",
-  totalScore: dimensions.growth + dimensions.quality + dimensions.cashFlow + dimensions.valuation + dimensions.risk + dimensions.sustainability,
+  totalScore: Object.values(dimensions).reduce<number>((sum,value)=>sum+(value??0),0),
   ...dimensions,
   reasons: {
     growth: "本地 A 股财务快照，用于服务端不可用时兜底。",

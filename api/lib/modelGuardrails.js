@@ -1,4 +1,5 @@
 import policy from "../../model-policy.json" with { type: "json" };
+import {assessData} from './dataQuality.js';
 
 export function classifyGames(sector, industry, name = "") {
   return /video games|electronic gaming|interactive entertainment|motorsport games/i.test(`${sector} ${industry} ${name}`)
@@ -20,7 +21,12 @@ export function applyModelGuardrails(template, metrics, rawScores) {
       ? (metrics.netIncome - metrics.operatingIncome) / metrics.netIncome : null,
     equityToRevenue: metrics.totalEquity != null && metrics.totalRevenue > 0
       ? metrics.totalEquity / metrics.totalRevenue : null,
-    softwareInvestmentMissing: software && metrics.capitalizedSoftware == null
+    softwareInvestmentMissing: /Games/.test(template) && metrics.capitalizedSoftware == null && metrics.capexIncludesIntangibles!==1,
+    softwareDisclosureUnclear:software && !/Games/.test(template) && metrics.capitalizedSoftware==null && metrics.capexIncludesIntangibles!==1,
+    cashflowReviewRequired: metrics.cashflowReviewRequired===true || (!financial && metrics.totalRevenue!=null && metrics.operatingCashflow!=null && metrics.operatingCashflow>metrics.totalRevenue*.8 && metrics.customerFundsChange==null),
+    unverifiedForecast: metrics.forwardPE!=null && metrics.forecastVerified!==1,
+    valuationEvidenceMissing:!financial && metrics.forecastVerified!==1 && (!(metrics.trailingPE>0) || metrics.fcfYield==null),
+    recentLossHistory:metrics.profitHistoryYears>=3 && metrics.profitableYears<3
   };
   const flags = [];
   let blocked = false;
@@ -36,8 +42,8 @@ export function applyModelGuardrails(template, metrics, rawScores) {
     flags.push(rule.reason);
     blocked ||= Boolean(rule.block);
   }
-  return {
-    modelVersion: policy.version, scores, flags,
-    highQualityEligible: !blocked && scores.quality >= 3 && scores.risk >= 3 && scores.sustainability >= 3
-  };
+  metrics={...metrics,cashflowReviewRequired:evidence.cashflowReviewRequired};
+  const assessment=assessData(template,metrics,scores,blocked);
+  return {...assessment,modelVersion:policy.version,flags,
+    highQualityEligible: assessment.rankEligible && scores.quality>=3 && scores.risk>=3 && scores.sustainability>=3};
 }

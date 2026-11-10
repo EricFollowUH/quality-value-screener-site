@@ -4,6 +4,33 @@ Interactive stock research dashboard built from the `quality-value-stock-screene
 
 ## Data Architecture
 
+Current production model is v2.2. See [model-v22.md](public/model-v22.md).
+The historical v2.1 description below is retained for migration context; use the
+following daily pipeline rather than the old weekly frame-only rebuild.
+
+```bash
+node scripts/cache-market-universe.mjs
+node scripts/cache-company-facts.mjs
+node scripts/cache-market-quotes.mjs
+python3 -m scripts.refresh_market
+npm test
+python3 -m unittest tests/test_build_us_market_snapshot.py
+npm run build
+```
+
+Daily schedule: 23:30 UTC. Every covered issuer gets company-facts retrieval;
+unknown fields remain null, incomplete totals remain null, and only eligible
+records enter normal rankings. `includeUnverified=true` or direct ticker search
+retains access to incomplete/risk-blocked records. Quotes carry provider times.
+`/api/health` returns 503 when the last validated snapshot is older than 48 hours.
+Publication is atomic and rejects failed validation or abrupt comparable-field
+coverage loss. The browser fallback and API use the same generated artifact;
+there are no hardcoded US demo scores. Nasdaq directory fallback, unsupported
+filing formats, incomplete records and scoreable records are distinct states.
+For local browser + API verification: `node scripts/dev-server.mjs` (port 5182).
+
+## Historical Architecture (v2.1)
+
 - Market universe: US exchange-listed SEC filers. ETFs, securities without standardized SEC facts, and securities without a usable market price are excluded and counted in `coverage`.
 - Fundamentals: SEC XBRL Frames API for annual fundamentals and recent balance-sheet values. The build does not download the multi-gigabyte SEC bulk archives.
 - Price and company metadata: Nasdaq's listed-company screener plus an authenticated Yahoo Finance quote session during the weekly build.

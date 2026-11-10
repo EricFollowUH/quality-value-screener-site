@@ -1,4 +1,13 @@
 {
+  "PAYS": {
+    "periodEnd": "2026-09-30",
+    "filedAt": "2026-11-10",
+    "expiresAt": "2027-03-01",
+    "template": "Payment networks / financial infrastructure",
+    "sources": ["https://www.sec.gov/Archives/edgar/data/1496443/000168316826008453/paysign_i10q-093026.htm", "https://www.sec.gov/Archives/edgar/data/1496443/000168316826002180/R6.htm"],
+    "metrics": {"customerFundsChange": 90459991, "customerLossRevenueShare": 0.090909, "intangibleInvestment": 407237},
+    "note": "TTM客户资金变动=2025全年31862798+2026前三季57629812-2025前三季(-967381)。客户资金不是股东赚到的现金。113家中心转移涉及当季约9.1%收入；不把客户流失直接当成永久性损失。"
+  },
   "NUTX": {
     "periodEnd": "2026-09-30",
     "filedAt": "2026-11-05",
