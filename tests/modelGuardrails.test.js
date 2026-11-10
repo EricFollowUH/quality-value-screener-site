@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
 const scores = { growth: 5, quality: 5, cashFlow: 5, valuation: 5, risk: 5, sustainability: 5 };
-const healthy = { marketCap: 10e9, totalRevenue: 1e9, totalDebt: 0, netIncome: 200e6, operatingIncome: 240e6, totalEquity: 2e9, freeCashflow: 180e6, capex: 20e6, capitalizedSoftware: 0, forwardPE: 20, quarterRevenueGrowth:.2, quarterAgeDays:45 };
+const healthy = { marketCap: 10e9, totalRevenue: 1e9, totalDebt: 0, totalCash:1e9, operatingCashflow:220e6,grossMargins:.8,operatingMargins:.3,returnOnEquity:.2,companyFactsVerified:1,financialAgeDays:45,forecastVerified:1,netIncome: 200e6, operatingIncome: 240e6, totalEquity: 2e9, freeCashflow: 180e6, capex: 20e6, capitalizedSoftware: 0, forwardPE: 20, quarterRevenueGrowth:.2, quarterAgeDays:45 };
 
 test("MSGM-like microcap cannot qualify through margins and cheap PE alone", () => {
   const result = applyModelGuardrails("Games / interactive entertainment", { ...healthy, marketCap: 19e6, totalRevenue: 11.3e6, netIncome: 6.84e6, operatingIncome: 3.25e6, totalEquity: 3.88e6, totalDebt: null, capitalizedSoftware: 1.1e6, freeCashflow: 3e6 }, scores);
@@ -20,7 +20,7 @@ test("MSGM-like microcap cannot qualify through margins and cheap PE alone", () 
 
 test("missing cash investment is not treated as zero", () => {
   const result = applyModelGuardrails("SaaS / enterprise software", { ...healthy, capex: null, capitalizedSoftware: null }, scores);
-  assert.ok(result.scores.cashFlow <= 3);
+  assert.equal(result.scores.cashFlow,null);
   assert.equal(result.highQualityEligible, false);
 });
 
@@ -50,9 +50,10 @@ test("healthy large business is not microcap penalized; moat proxy is capped", (
   assert.equal(result.highQualityEligible, true);
 });
 
-test("banks are not blocked for missing industrial free-cashflow inputs", () => {
+test("banks are not labeled low quality for absent industrial cash flow, but cannot invent a complete total", () => {
   const result = applyModelGuardrails("Banks", { ...healthy, capex: null, freeCashflow: null }, scores);
-  assert.equal(result.highQualityEligible, true);
+  assert.equal(result.highQualityEligible, false);
+  assert.equal(result.scores.cashFlow,null);
   assert.equal(result.flags.length, 0);
 });
 
@@ -71,22 +72,22 @@ test("Python snapshot and JS live paths apply identical policy", () => {
 });
 
 test("live score total is the sum of guarded dimensions", () => {
-  const stock = scoreCompany({ ticker: "TEST", name: "Test Games", sector: "Technology", industry: "Video Games", template: "Games / interactive entertainment", metrics: { ...healthy, marketCap: 19e6, totalRevenue: 11e6, grossMargins: .81, operatingMargins: .28, returnOnEquity: 1.78, revenueGrowth: .3, earningsGrowth: 3.5, ebitda: 3e6 } });
+  const stock = scoreCompany({ ticker: "TEST", name: "Test Games", sector: "Technology", industry: "Video Games", template: "Games / interactive entertainment", metrics: { ...healthy, marketCap: 19e6, totalRevenue: 11e6, operatingCashflow:4.073e6,freeCashflow:2.961e6,capex:12000,capitalizedSoftware:1.1e6,grossMargins: .81, operatingMargins: .28, returnOnEquity: 1.78, revenueGrowth: .3, earningsGrowth: 3.5, ebitda: 3e6 } });
   assert.equal(stock.totalScore, ["growth", "quality", "cashFlow", "valuation", "risk", "sustainability"].reduce((sum, key) => sum + stock[key], 0));
   assert.equal(stock.highQualityEligible, false);
   assert.equal(stock.risk, 1);
-  assert.equal(stock.modelVersion, "2.1.1");
+  assert.equal(stock.modelVersion, "2.2.0");
 });
 
 test("published local snapshot obeys the same gates for every scored company", () => {
   const snapshot = JSON.parse(readFileSync(new URL("../public/data/us-market-scores.json", import.meta.url)));
-  assert.equal(snapshot.modelVersion, "2.1.1");
+  assert.equal(snapshot.modelVersion, "2.2.0");
   for (const stock of snapshot.scores) {
     const dimensions = Object.fromEntries(Object.keys(scores).map(key => [key, stock[key]]));
     const guarded = applyModelGuardrails(stock.template, stock.metrics, dimensions);
     assert.deepEqual(guarded.scores, dimensions, stock.ticker);
     assert.deepEqual(guarded.flags, stock.reviewFlags, stock.ticker);
     assert.equal(guarded.highQualityEligible, stock.highQualityEligible, stock.ticker);
-    assert.equal(stock.totalScore, Object.values(dimensions).reduce((sum, value) => sum + value, 0), stock.ticker);
+    assert.equal(stock.totalScore, Object.values(dimensions).every(Number.isFinite)?Object.values(dimensions).reduce((sum, value) => sum + value, 0):null, stock.ticker);
   }
 });

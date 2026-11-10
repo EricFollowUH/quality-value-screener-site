@@ -22,6 +22,9 @@ export function resolveSnapshotScores(
 }
 
 export function mergeSnapshotQuote(snapshotStock: StockScore, liveStock: StockScore) {
+  if(liveStock.modelVersion===snapshotStock.modelVersion && liveStock.dataQuality?.complete && liveStock.metrics.latestFiscalEnd===snapshotStock.metrics.latestFiscalEnd) {
+    return {...snapshotStock,...liveStock,name:snapshotStock.name};
+  }
   const metrics = { ...snapshotStock.metrics };
   for (const key of quoteMetricKeys) {
     const value = liveStock.metrics?.[key];

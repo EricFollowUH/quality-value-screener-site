@@ -9,3 +9,5 @@ mobile-check.png
 *.tsbuildinfo
 __pycache__/
 *.pyc
+.cache/
+.playwright-cli/

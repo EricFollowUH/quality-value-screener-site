@@ -22,6 +22,7 @@ import {
   Legend,
   PolarAngleAxis,
   PolarGrid,
+  PolarRadiusAxis,
   Radar,
   RadarChart,
   ResponsiveContainer,
@@ -432,15 +433,18 @@ const aShareTickerPattern = /^(00|30|60|68)\d{4}$/;
 
 function tier(stock: StockScore) {
   const score = stock.totalScore;
+  if(score==null) return {label:"数据待核验",className:"tier-watch"};
+  if(stock.rankEligible===false) return {label:"受限 · 不入榜",className:"tier-watch"};
   if (score >= 25) return stock.highQualityEligible === true
-    ? { label: "高质量候选", className: "tier-high" }
+    ? { label: "财务高分候选", className: "tier-high" }
     : { label: "高分待核查", className: "tier-watch" };
   if (score >= 20) return { label: "有吸引力", className: "tier-mid" };
   if (score >= 15) return { label: "普通观察", className: "tier-watch" };
   return { label: "低优先级", className: "tier-low" };
 }
 
-function dimensionTierClass(score: number) {
+function dimensionTierClass(score: number | null) {
+  if(score==null) return "tier-watch";
   if (score >= 4) return "tier-high";
   if (score >= 3) return "tier-mid";
   if (score >= 2) return "tier-watch";
@@ -504,13 +508,17 @@ function priceChangeClass(value: number | null | undefined) {
 }
 
 function sortValue(stock: StockScore, sortKey: SortKey) {
-  return sortKey === "totalScore" ? stock.totalScore : stock[sortKey];
+  return (sortKey === "totalScore" ? stock.totalScore : stock[sortKey]) ?? -1;
+}
+
+function fmtScore(score: number | null, max=30) {
+  return score==null?"待核验":`${score}/${max}`;
 }
 
 function compareStocks(a: StockScore, b: StockScore, sortKey: SortKey) {
   const primary = sortValue(b, sortKey) - sortValue(a, sortKey);
   if (primary !== 0) return primary;
-  const total = b.totalScore - a.totalScore;
+  const total = (b.totalScore??-1) - (a.totalScore??-1);
   if (total !== 0) return total;
   return a.ticker.localeCompare(b.ticker);
 }
@@ -529,7 +537,8 @@ function fmtMoneyMetric(value: number | null | undefined) {
   return value.toFixed(0);
 }
 
-function scoreTone(score: number) {
+function scoreTone(score: number | null) {
+  if(score==null) return "待核验";
   if (score >= 5) return "很强";
   if (score >= 4) return "强";
   if (score >= 3) return "中性";
@@ -540,6 +549,7 @@ function scoreTone(score: number) {
 function compactReason(stock: StockScore, dimension: ScoreDimension) {
   const metrics = stock.metrics || {};
   const score = stock[dimension];
+  if(score==null) return "待核验。关键数据缺失、期间不一致或资金归属未核实；不按零分判断公司质量，不计入完整总分。";
 
   switch (dimension) {
     case "growth":
@@ -550,7 +560,7 @@ function compactReason(stock: StockScore, dimension: ScoreDimension) {
       const fcfYield = metrics.fcfYield ?? (metrics.freeCashflow != null && metrics.marketCap ? metrics.freeCashflow / metrics.marketCap : null);
       const fcfMargin = metrics.freeCashflow != null && metrics.totalRevenue ? metrics.freeCashflow / metrics.totalRevenue : null;
       const conversion = metrics.freeCashflow != null && metrics.operatingCashflow ? metrics.freeCashflow / metrics.operatingCashflow : null;
-      return `${scoreTone(score)}。${metrics.ownerCashflow != null ? "股东现金代理" : "合并FCF"}收益率 ${fmtPctMetric(fcfYield)}，合并FCF利润率 ${fmtPctMetric(fcfMargin)}。融资租赁本金 ${fmtMoneyMetric(metrics.financeLeasePrincipal)}，少数股东分配 ${fmtMoneyMetric(metrics.noncontrollingDistributions)}；缺失不视为零。`;
+      return `${scoreTone(score)}。${metrics.ownerCashflow != null ? "股东现金代理" : metrics.customerFundsChange!=null ? "扣除客户资金后的FCF" : "合并FCF"}收益率 ${fmtPctMetric(fcfYield)}，FCF利润率 ${fmtPctMetric(fcfMargin)}。${metrics.customerFundsChange!=null?`已剔除客户资金净增加 ${fmtMoneyMetric(metrics.customerFundsChange)}；报告经营现金流 ${fmtMoneyMetric(metrics.operatingCashflow)}。`:''}${stock.template==='Healthcare services / hospitals'?`融资租赁本金 ${fmtMoneyMetric(metrics.financeLeasePrincipal)}，少数股东分配 ${fmtMoneyMetric(metrics.noncontrollingDistributions)}；缺失不视为零。`:''}`;
     }
     case "valuation": {
       const forwardPE = metrics.forwardPE ?? null;
@@ -575,7 +585,7 @@ function compactReason(stock: StockScore, dimension: ScoreDimension) {
         metrics.totalCash != null && metrics.totalDebt != null && metrics.ebitda
           ? (metrics.totalDebt - metrics.totalCash) / metrics.ebitda
           : null;
-      return `${scoreTone(score)}。现金 ${fmtMoneyMetric(metrics.totalCash)}，含融资租赁的已识别债务 ${fmtMoneyMetric(metrics.totalDebt)}，净债务/经营利润代理 ${fmtMultiple(netDebtToEbitda)}；经营租赁另列 ${fmtMoneyMetric(metrics.operatingLeaseDebt)}。`;
+      return `${scoreTone(score)}（财务风险代理，非整体经营风险）。现金 ${fmtMoneyMetric(metrics.totalCash)}，含融资租赁的已识别债务 ${fmtMoneyMetric(metrics.totalDebt)}，净债务/经营利润代理 ${fmtMultiple(netDebtToEbitda)}；经营租赁另列 ${fmtMoneyMetric(metrics.operatingLeaseDebt)}。`;
     }
     case "sustainability":
       return `${scoreTone(score)}。按 ${stock.template} 模板评估，重点看增长、利润率和行业护城河能否延续。`;
@@ -738,7 +748,7 @@ function filingSearchUrl(market: Market, ticker: string, name?: string) {
 
 function sourceText(snapshot: Snapshot, usingFallback: boolean) {
   return usingFallback
-    ? "本地兜底快照；等待服务端实时数据"
+    ? "本地已验证快照；以所示财报及行情时间为准"
     : snapshot.source;
 }
 
@@ -752,7 +762,7 @@ function loadBundledMarketSnapshot() {
         return response.json() as Promise<Snapshot>;
       })
       .then((data) => {
-        if (!Array.isArray(data.scores) || data.scores.length === 0) {
+        if (!Array.isArray(data.scores) || data.scores.length === 0 || data.modelVersion!=='2.2.0' || data.validation?.passed!==true) {
           throw new Error("bundled market snapshot is empty");
         }
         return data;
@@ -811,6 +821,12 @@ export default function App() {
   const [loadedIndustryKey, setLoadedIndustryKey] = useState("");
   const [compareTickers, setCompareTickers] = useState<string[]>([]);
   const [showModelGuide, setShowModelGuide] = useState(false);
+  const [includeUnverified,setIncludeUnverified]=useState(false);
+  const [refreshEpoch,setRefreshEpoch]=useState(0);
+  useEffect(()=>{
+    const timer=window.setInterval(()=>setRefreshEpoch(value=>value+1),15*60*1000);
+    return ()=>window.clearInterval(timer);
+  },[]);
 
   useEffect(() => {
     const fallback = fallbackSnapshotForMarket(market);
@@ -851,6 +867,7 @@ export default function App() {
   const compareSet = useMemo(() => new Set(compareTickers), [compareTickers]);
   const comparisonMode = compareTickers.length > 0;
   const isDefaultTopTenView =
+    !includeUnverified &&
     !comparisonMode &&
     !query.trim() &&
     industry === "All" &&
@@ -865,10 +882,12 @@ export default function App() {
     const params = new URLSearchParams();
     if (market === "us") {
       params.set("scope", "market");
+      params.set('model','2.2.0');
       params.set("sort", sortKey);
       params.set("minScore", String(minScore));
       appendDimensionMinimumParams(params, dimensionMinimums);
       params.set("limit", "100");
+      if(includeUnverified) params.set('includeUnverified','true');
       if (industry !== "All") params.set("template", industry);
     }
     const suffix = params.size ? `?${params.toString()}` : "";
@@ -881,7 +900,7 @@ export default function App() {
         .then(async (data: Snapshot) => {
           if (!Array.isArray(data.scores)) return;
           if (market === "cn" && data.scores.length === 0) return;
-          if (market === "us" && data.coverage?.scope !== "us-scoreable-market") {
+          if (market === "us" && (data.coverage?.scope !== "us-scoreable-market" || data.modelVersion!=='2.2.0' || data.validation?.passed!==true)) {
             data = await loadBundledMarketSnapshot();
           }
           setSnapshot(data);
@@ -920,7 +939,7 @@ export default function App() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [comparisonMode, dimensionMinimums, industry, market, minScore, query, sortKey]);
+  }, [comparisonMode, dimensionMinimums, industry, market, minScore, query, sortKey, includeUnverified,refreshEpoch]);
 
   useEffect(() => {
     const value = query.trim();
@@ -1042,7 +1061,7 @@ export default function App() {
 
   const { items: filtered, matchedCount: localMatchedCount } = useMemo(() => {
     const passesScoreFilters = (item: StockScore) =>
-      item.totalScore >= minScore && dimensions.every(({ key }) => item[key] >= dimensionMinimums[key]);
+      (minScore===0 || (item.totalScore!=null && item.totalScore>=minScore)) && dimensions.every(({ key }) => dimensionMinimums[key]===0 || (item[key]!=null && item[key]>=dimensionMinimums[key]));
 
     if (comparisonMode) {
       const matches = sortedScores.filter((item) => compareSet.has(item.ticker) && passesScoreFilters(item));
@@ -1053,6 +1072,7 @@ export default function App() {
     const selectedIndustryKey = templateSearchKeyForMarket(market)[industry] || "";
     const isSelectedIndustryUniverse = Boolean(!needle && selectedIndustryKey && loadedIndustryKey === selectedIndustryKey);
     const matches = sortedScores.filter((item) => {
+      if(market==='us' && !needle && !includeUnverified && item.rankEligible!==true) return false;
       const matchesText =
         !needle ||
         isIndustrySearchResult ||
@@ -1078,9 +1098,10 @@ export default function App() {
     query,
     sortKey,
     sortedScores
+    ,includeUnverified
   ]);
 
-  const featured = useMemo(() => (filtered.length ? filtered.slice(0, 5) : sortedScores.slice(0, 5)), [filtered, sortedScores]);
+  const featured = useMemo(() => filtered.slice(0,5), [filtered]);
 
   const selected = useMemo(
     () => filtered.find((item) => item.ticker === selectedTicker) || filtered[0] || sortedScores.find((item) => item.ticker === selectedTicker) || sortedScores[0],
@@ -1092,7 +1113,7 @@ export default function App() {
     () =>
       dimensions.map((dimension) => ({
         metric: dimension.label,
-        score: selected?.[dimension.key] || 0,
+        score: selected?.[dimension.key] ?? null,
         fullMark: 5
       })),
     [selected]
@@ -1100,7 +1121,7 @@ export default function App() {
 
   const barData = useMemo(
     () =>
-      filtered.slice(0, 10).map((item) => ({
+      filtered.filter(item=>item[sortKey]!=null).slice(0, 10).map((item) => ({
         ticker: item.ticker,
         score: sortValue(item, sortKey),
         totalScore: item.totalScore,
@@ -1111,13 +1132,14 @@ export default function App() {
 
   const summary = useMemo(() => {
     const source = filtered;
-    const high = source.filter((item) => item.totalScore >= 25 && item.highQualityEligible === true).length;
-    const avg = source.reduce((sum, item) => sum + item.totalScore, 0) / Math.max(source.length, 1);
+    const high = source.filter((item) => item.totalScore!=null && item.totalScore >= 25 && item.highQualityEligible === true).length;
+    const complete=source.filter(item=>item.totalScore!=null);
+    const avg = complete.reduce((sum, item) => sum + (item.totalScore??0), 0) / Math.max(complete.length, 1);
     const templates = new Set(source.map((item) => item.template)).size;
     return { high, avg, templates };
   }, [filtered]);
 
-  const scoreableUniverseCount = snapshot.coverage?.scoredCount ?? sortedScores.length;
+  const scoreableUniverseCount = snapshot.coverage?.rankEligibleCount ?? snapshot.coverage?.scoredCount ?? sortedScores.length;
   const matchedUniverseCount = snapshot.coverage?.matchedCount ?? localMatchedCount;
   const isFullMarketSnapshot = snapshot.coverage?.scope === "us-scoreable-market";
   const visibleCountLabel = isDefaultTopTenView
@@ -1200,7 +1222,7 @@ export default function App() {
         const response = await fetch(`${apiBase}${snapshotEndpoint(market)}?tickers=${encodeURIComponent(missing.join(","))}`);
         if (!response.ok) throw new Error("lookup unavailable");
         const data: Snapshot = await response.json();
-        const validScores = (data.scores || []).filter((score) => score.totalScore > 0);
+        const validScores = (data.scores || []).filter((score) => score.ticker && !score.error);
         rejected = missing.filter((ticker) => !validScores.some((score) => score.ticker === ticker));
         if (validScores.length) {
           setSnapshot((current) => {
@@ -1208,9 +1230,6 @@ export default function App() {
             const existing = current.scores.filter((item) => !incoming.has(item.ticker));
             return {
               ...current,
-              generatedAt: data.generatedAt || current.generatedAt,
-              cadence: data.cadence || current.cadence,
-              source: data.source || current.source,
               scores: [...validScores, ...existing]
             };
           });
@@ -1483,6 +1502,8 @@ export default function App() {
           />
         </section>
 
+        {market==='us'?<label className="review-toggle"><input type="checkbox" checked={includeUnverified} onChange={event=>setIncludeUnverified(event.target.checked)}/>包含待核验及风险受限记录</label>:null}
+
         <section className="method-block">
           <div className="method-title">
             <SlidersHorizontal size={17} />
@@ -1500,7 +1521,7 @@ export default function App() {
         <header className="topbar">
           <div>
             <p className="eyebrow">
-              {isFullMarketSnapshot ? "全市场评分" : snapshot.cadence === "live" ? "实时快照" : "本地快照"} · 数据时间 {fmtDateTime(snapshot.generatedAt)}
+              {isFullMarketSnapshot ? "覆盖市场 · 财务初筛" : snapshot.cadence === "live" ? "服务端查询" : "本地快照"} · 快照时间 {fmtDateTime(snapshot.generatedAt)}
             </p>
             <h2>{comparisonMode ? copy.compareTitle : copy.title}</h2>
           </div>
@@ -1509,6 +1530,9 @@ export default function App() {
             <span>{sourceText(snapshot, usingFallback)}</span>
           </div>
         </header>
+
+        {market==='us' && snapshot.generatedAt && Date.now()-Date.parse(snapshot.generatedAt)>48*3600000 ? <p className="data-warning" role="alert">快照已超过48小时未成功更新。以下为历史数据，不代表当前市场排名。</p>:null}
+        {market==='us'?<p className="data-status">覆盖 {snapshot.coverage?.coveredCount??snapshot.coverage?.scoredCount??0} 支 · 通过入榜检查 {snapshot.coverage?.rankEligibleCount??0} 支 · 待补齐 {snapshot.coverage?.incompleteCount??0} 支 · 每日23:30 UTC检查；行情可能延迟</p>:null}
 
         <motion.section
           className="featured-strip"
@@ -1529,8 +1553,8 @@ export default function App() {
                 <span className="ticker">{item.ticker}</span>
                 <span className="company">{item.name}</span>
                 <span className="score-line">
-                  <strong>{isDimensionSort ? `${itemRankValue}/${activeSortOption.max}` : `${item.totalScore}/30`}</strong>
-                  <small className={itemRankClass}>{isDimensionSort ? `总分 ${item.totalScore}/30` : itemTier.label}</small>
+                  <strong>{fmtScore(isDimensionSort?item[sortKey]:item.totalScore,activeSortOption.max)}</strong>
+                  <small className={itemRankClass}>{isDimensionSort ? `总分 ${fmtScore(item.totalScore)}` : itemTier.label}</small>
                 </span>
               </button>
             );
@@ -1602,14 +1626,17 @@ export default function App() {
               <span>{fmtPrice(selected?.currentPrice ?? null, market)}</span>
             </div>
             <div className="radar-chart">
+              {radarData.every(item=>item.score!=null)?(
               <ResponsiveContainer width="100%" height="100%">
                 <RadarChart data={radarData}>
                   <PolarGrid stroke="#d8dde8" />
+                  <PolarRadiusAxis domain={[0,5]} tick={false} axisLine={false}/>
                   <PolarAngleAxis dataKey="metric" tick={{ fill: "#435066", fontSize: 12 }} />
                   <Radar name="Score" dataKey="score" stroke="#405de6" fill="#405de6" fillOpacity={0.24} />
                   <Legend />
                 </RadarChart>
               </ResponsiveContainer>
+              ):<div className="empty-state">六维数据待核验，暂不绘制雷达图</div>}
             </div>
           </motion.div>
         </section>
@@ -1621,10 +1648,10 @@ export default function App() {
               <h3>{tableTitle}</h3>
             </div>
             <div className="metrics-row">
-              <span>{summary.high} 支高质量候选</span>
+              <span>{summary.high} 支财务高分候选</span>
               <span>平均 {summary.avg.toFixed(1)}/30</span>
               <span>{summary.templates} 类模板</span>
-              {isFullMarketSnapshot ? <span>全池 {scoreableUniverseCount.toLocaleString("zh-CN")} 支</span> : null}
+              {isFullMarketSnapshot ? <span>可排名 {scoreableUniverseCount.toLocaleString("zh-CN")} 支</span> : null}
             </div>
           </div>
           <div className="score-table">
@@ -1655,15 +1682,15 @@ export default function App() {
                     <small>{fmtShortMarketTime(item.quoteAsOf ?? snapshot.generatedAt, market)}</small>
                   </span>
                   <span className={`score-badge rank-badge ${itemRankClass}`}>
-                    <strong>{itemRankValue}/{activeSortOption.max}</strong>
-                    {isDimensionSort ? <small>总分 {item.totalScore}/30</small> : null}
+                    <strong>{fmtScore(isDimensionSort?item[sortKey]:item.totalScore,activeSortOption.max)}</strong>
+                    {isDimensionSort ? <small>总分 {fmtScore(item.totalScore)}</small> : null}
                   </span>
                   <span className="mini-bars" aria-label={`${item.ticker} score dimensions`}>
                     {dimensions.map((dimension) => (
                       <i
                         key={dimension.key}
-                        style={{ height: `${Math.max(18, item[dimension.key] * 16)}%` }}
-                        title={`${dimension.label}: ${item[dimension.key]}/5`}
+                        style={{ height: `${item[dimension.key]==null?8:Math.max(18, (item[dimension.key]??0) * 16)}%`,opacity:item[dimension.key]==null?.25:1 }}
+                        title={`${dimension.label}: ${fmtScore(item[dimension.key],5)}`}
                       />
                     ))}
                   </span>
@@ -1681,7 +1708,7 @@ export default function App() {
                   ? `正在从服务端计算 ${lookupTicker} 的六维评分`
                   : comparisonMode
                     ? "当前最低总分隐藏了对比股票；降低分数阈值即可显示。"
-                    : "当前筛选条件下没有结果。输入 ticker 或公司名后加入对比。"}
+                    : "没有通过当前筛选及入榜检查的记录。可放宽条件，或勾选包含待核验及风险受限记录。"}
               </div>
             ) : null}
           </div>
@@ -1697,7 +1724,7 @@ export default function App() {
                 <h2>{selected.ticker}</h2>
                 <p>{selected.name}</p>
               </div>
-              <span className={`score-badge ${tier(selected).className}`}>{selected.totalScore}/30</span>
+              <span className={`score-badge ${tier(selected).className}`}>{fmtScore(selected.totalScore)}</span>
             </div>
 
             <div className="detail-actions">
@@ -1725,13 +1752,13 @@ export default function App() {
               </div>
               <div>
                 <span>行情时间</span>
-                <strong>{fmtMarketTime(selected.quoteAsOf ?? snapshot.generatedAt, market)}</strong>
-                <small>{selected.quoteAsOf ? "来自行情源" : "使用快照时间兜底"}</small>
+                <strong>{fmtMarketTime(selected.quoteAsOf, market)}</strong>
+                <small>{selected.quoteAsOf ? "行情源时间；可能延迟" : "未取得行情时间"}</small>
               </div>
               <div>
                 <span>快照生成</span>
                 <strong>{fmtDateTime(snapshot.generatedAt)}</strong>
-                <small>{snapshot.cadence === "live" ? "服务端计算" : "周度评分；非财报期间"}</small>
+                <small>{snapshot.cadence === "live" ? "服务端计算" : "每日检查；不代表财报或行情实时更新"}</small>
               </div>
               <div>
                 <span>财务期间</span>
@@ -1743,6 +1770,7 @@ export default function App() {
                 <strong>{String(selected.metrics.latestQuarterEnd || "暂无")}</strong>
                 <small>资产负债表截至 {String(selected.metrics.latestBalanceEnd || "暂无")}</small>
               </div>
+              <div><span>财报核验时间</span><strong>{fmtDateTime(selected.dataQuality?.checkedAt)}</strong><small>{selected.dataQuality?.status==='complete'?'关键字段完整':'数据待核验或过期'} · {selected.rankEligible?'通过量化入榜检查':'未进入正常榜单'}</small></div>
             </section>
 
             {selectedBrief ? (
@@ -1767,9 +1795,9 @@ export default function App() {
                     <small>{dimension.short}</small>
                   </div>
                   <div className="dimension-score">
-                    <span style={{ width: `${selected[dimension.key] * 20}%` }} />
+                    <span style={{ width: `${(selected[dimension.key]??0) * 20}%` }} />
                   </div>
-                  <b>{selected[dimension.key]}/5</b>
+                  <b>{fmtScore(selected[dimension.key],5)}</b>
                 </div>
               ))}
             </section>
@@ -1792,6 +1820,7 @@ export default function App() {
               <p>可持续分仅为财务代理，自动评分最高3分；4–5分需要留存、份额和授权等人工证据。缺失数据不等于零风险。</p>
               {selected.metrics.reviewOwnerCashflow != null ? <p>研究补充：截至 {String(selected.metrics.latestFiscalEnd)} 的 {selected.metrics.reviewCashflowMonths} 个月，经营现金流 {fmtMoneyMetric(selected.metrics.reviewOperatingCashflow)}，扣除资本开支、融资租赁本金及少数股东分配后约 {fmtMoneyMetric(selected.metrics.reviewOwnerCashflow)}。这是期间现金代理，不直接年化或混入TTM收益率。</p> : null}
               {selected.evidenceSources?.map((source,index)=><p key={source}><a href={source} target="_blank" rel="noreferrer">研究来源 {index+1} <ExternalLink size={13}/></a></p>)}
+              {selected.metricSources?.revenue ? <p><a href={selected.metricSources.revenue.url} target="_blank" rel="noreferrer">SEC 财报来源 <ExternalLink size={13}/></a> · 披露日期 {selected.metricSources.revenue.filed}</p>:null}
             </section>
 
             <section className="risk-block">
@@ -1894,7 +1923,7 @@ export default function App() {
 
               <section>
                 <h3>总分解释</h3>
-                <p>v2.1：总分达到25分还不够。质量、风险、可持续均须至少3分，且不得触发证据或风险闸门，否则仅标为高分待核查。旧版快照不自动认定高质量。</p>
+                <p>v2.2：缺失维度显示待核验，不当作零分；关键字段未完整、过期或触发风险闸门的记录不进入正常榜单。高分只是财务初筛，不代表已完成竞争力和经营风险尽调。</p>
                 <div className="model-table compact">
                   {modelTierRows.map((row) => (
                     <div className="model-table-row" key={row.total}>
@@ -1916,7 +1945,8 @@ export default function App() {
               <section>
                 <h3>NUTX复盘与v2.1修订</h3>
                 <p>高年报增长不能替代最新季度同比；银行借款不能替代含融资租赁的债务；合并现金流不能全部归普通股股东。TTM使用“全年＋本期YTD－上年同期间YTD”，不再把三个季度相加称为TTM，也不混用不同截止日的利润和现金流。</p>
-                <p>全市场读取最近已披露可比季度；前50高分候选和已研究公司补充逐公司财报。未补充的保留年度代理标签。医疗服务增加租赁、少数股东与保险结算检查；非现金费用冲回须附来源，证据到期或出现新一期财报后暂停高质量资格。</p>
+                <p>每日逐公司核对已覆盖股票池的SEC财报，合并标签别名，按相同期间计算TTM。客户代管资金不属于股东现金；已知重大客户流失、一次性收益及微盘风险另设闸门。更新失败保留原始时间，超过48小时显示告警。</p>
+                <p><a href="/model-v22.md" target="_blank" rel="noreferrer">v2.2 完整规则与案例说明 <ExternalLink size={13}/></a></p>
                 <a href="/model-review-nutx.md" target="_blank" rel="noreferrer">NUTX完整案例与模型边界 <ExternalLink size={14}/></a>
               </section>
 

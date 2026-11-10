@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { queryMarketSnapshot, resolveMarketSnapshotUrl, selectCompatibleSnapshot } from "../api/lib/marketSnapshot.js";
 
 const snapshot = {
+  validation:{passed:true},
   generatedAt: "2026-09-23T12:00:00.000Z",
   cadence: "weekly",
   source: "test snapshot",
@@ -16,6 +17,7 @@ const snapshot = {
     { ticker: "DELT", name: "Delta", template: "Semiconductors / chip design", totalScore: 20, growth: 4, quality: 3, cashFlow: 3, valuation: 3, risk: 4, sustainability: 3 }
   ]
 };
+snapshot.scores.forEach(stock=>stock.rankEligible=true);
 
 test("old weekly model cannot overwrite the deployed v2 snapshot", () => {
   const bundled = { ...snapshot, modelVersion: "2.0.0", generatedAt: "2026-11-09T18:22:36Z" };

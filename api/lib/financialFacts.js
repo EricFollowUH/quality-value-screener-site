@@ -7,8 +7,8 @@ const priorYear = date => `${Number(date.slice(0,4))-1}${date.slice(4)}`;
 export function factRows(company, key) {
   const combined=[];
   for (const tag of schema[key] || []) {
-    const rows = company.facts?.['us-gaap']?.[tag]?.units?.USD;
-    if (rows?.length) combined.push(...rows.filter(r=>Number.isFinite(r.val) && ['10-K','10-Q','10-K/A','10-Q/A'].includes(r.form)));
+    const rows = company.facts?.['us-gaap']?.[tag]?.units?.[key==='dilutedShares'?'shares':'USD'];
+    if (rows?.length) combined.push(...rows.filter(r=>Number.isFinite(r.val) && ['10-K','10-Q','10-K/A','10-Q/A'].includes(r.form)).map(r=>({...r,tag})));
   }
   return unique(combined);
 }
@@ -28,9 +28,9 @@ export function trailingValue(rows) {
   if (!annual) return null;
   const ytd=rows.filter(r=>r.end>annual.end && near(r.start,new Date(Date.parse(annual.end)+86400000).toISOString().slice(0,10)) && days(r)<330)
     .sort((a,b)=>b.end.localeCompare(a.end))[0];
-  if (!ytd) return {value:annual.val,end:annual.end,filed:annual.filed,basis:'annual'};
+  if (!ytd) return {value:annual.val,end:annual.end,filed:annual.filed,basis:'annual',tag:annual.tag??null};
   const prior=rows.find(r=>near(r.start,priorYear(ytd.start)) && near(r.end,priorYear(ytd.end)));
-  return prior ? {value:annual.val+ytd.val-prior.val,end:ytd.end,filed:ytd.filed,basis:'TTM'} : null;
+  return prior ? {value:annual.val+ytd.val-prior.val,end:ytd.end,filed:ytd.filed,basis:'TTM',tag:ytd.tag??annual.tag??null} : null;
 }
 
 export function latestQuarterGrowth(rows) {
@@ -43,16 +43,30 @@ export function latestQuarterGrowth(rows) {
 
 export function readFinancials(company) {
   const values={}; const periods={};
-  for(const key of ['revenue','netIncome','grossProfit','operatingIncome','operatingCashflow','capex','capitalizedSoftware','financeLeasePrincipal','noncontrollingDistributions','noncontrollingIncome']) {
+  for(const key of ['revenue','netIncome','grossProfit','costOfRevenue','operatingIncome','operatingCashflow','capex','capitalizedSoftware','intangibleInvestment','customerFundsChange','financeLeasePrincipal','noncontrollingDistributions','noncontrollingIncome']) {
     const period=trailingValue(factRows(company,key));
     if(period) { values[key]=period.value; periods[key]=period; }
   }
-  const balanceRows=factRows(company,'equity').filter(r=>!r.start).sort((a,b)=>b.end.localeCompare(a.end) || (b.filed || '').localeCompare(a.filed || ''));
+  const balanceRows=['equity','cash','longTermDebt','currentDebt'].flatMap(key=>factRows(company,key)).filter(r=>!r.start).sort((a,b)=>b.end.localeCompare(a.end) || (b.filed || '').localeCompare(a.filed || ''));
   const balanceEnd=balanceRows[0]?.end;
-  for(const key of ['cash','equity','longTermDebt','currentDebt','shortTermDebt','financeLeaseCurrent','financeLeaseNoncurrent','operatingLeaseCurrent','operatingLeaseNoncurrent']) {
+  if (periods.grossProfit?.end!==periods.revenue?.end && periods.costOfRevenue?.end===periods.revenue?.end && values.costOfRevenue!=null) {
+    values.grossProfit=values.revenue-values.costOfRevenue;
+    periods.grossProfit={...periods.revenue,value:values.grossProfit,derived:'revenue - costOfRevenue'};
+  }
+  for(const key of ['cash','equity','longTermDebt','currentDebt','shortTermDebt','financeLeaseCurrent','financeLeaseNoncurrent','operatingLeaseCurrent','operatingLeaseNoncurrent','debtCombinedNoncurrent','debtCombinedCurrent','cashAndShortTermInvestments']) {
     const row=factRows(company,key).filter(r=>!r.start && r.end===balanceEnd).sort((a,b)=>(b.filed || '').localeCompare(a.filed || ''))[0];
     if(row) values[key]=row.val;
   }
   const latestYtd=factRows(company,'netIncome').filter(r=>r.start && days(r)>=65 && days(r)<=310).sort((a,b)=>b.end.localeCompare(a.end)||days(b)-days(a))[0];
-  return {values,periods,balanceEnd,quarter:latestQuarterGrowth(factRows(company,'revenue')),earningsQuarter:latestQuarterGrowth(factRows(company,'netIncome')),latestPeriodNetIncome:latestYtd?.val ?? null};
+  const cik=String(Number(company.cik));
+  const provenance=Object.fromEntries(Object.entries(periods).map(([key,period])=>{
+    const row=factRows(company,key).filter(r=>r.end===period.end).sort((a,b)=>(b.filed||'').localeCompare(a.filed||''))[0];
+    return [key,{...period,accession:row?.accn??null,url:row?.accn ? `https://www.sec.gov/Archives/edgar/data/${cik}/${row.accn.replaceAll('-','')}/` : `https://data.sec.gov/api/xbrl/companyfacts/CIK${String(company.cik).padStart(10,'0')}.json`}];
+  }));
+  const shareRow=factRows(company,'dilutedShares').filter(r=>r.start).sort((a,b)=>b.end.localeCompare(a.end)||a.start.localeCompare(b.start))[0];
+  if(shareRow) values.dilutedShares=shareRow.val;
+  const history=factRows(company,'netIncome').filter(r=>r.start && days(r)>=330 && days(r)<=380).sort((a,b)=>b.end.localeCompare(a.end)).slice(0,3);
+  values.profitHistoryYears=history.length;
+  values.profitableYears=history.filter(r=>r.val>0).length;
+  return {values,periods,provenance,balanceEnd,quarter:latestQuarterGrowth(factRows(company,'revenue')),earningsQuarter:latestQuarterGrowth(factRows(company,'netIncome')),latestPeriodNetIncome:latestYtd?.val ?? null};
 }

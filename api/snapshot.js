@@ -36,6 +36,7 @@ export default async function handler(req, res) {
     const scores = await screenTickers(list);
     res.setHeader("Cache-Control", "s-maxage=900, stale-while-revalidate=900");
     res.status(200).json({
+      modelVersion:'2.2.0',
       generatedAt: new Date().toISOString(),
       cadence: "live",
       source: searchUniverse

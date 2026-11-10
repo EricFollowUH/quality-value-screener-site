@@ -1,6 +1,30 @@
 {
-  "version": "2.1.1",
+  "version": "2.2.0",
+  "qualityBands": {
+    "default": {"gross": [0.70, 0.40], "operating": [0.25, 0.10], "roe": 0.15},
+    "Retail / e-commerce": {"gross": [0.35, 0.20], "operating": [0.08, 0.04], "roe": 0.15},
+    "Consumer brands / staples": {"gross": [0.55, 0.35], "operating": [0.20, 0.10], "roe": 0.15},
+    "Industrials / manufacturing": {"gross": [0.40, 0.25], "operating": [0.15, 0.08], "roe": 0.15},
+    "Semiconductors / chip design": {"gross": [0.60, 0.35], "operating": [0.25, 0.10], "roe": 0.15},
+    "SaaS / enterprise software": {"gross": [0.75, 0.55], "operating": [0.25, 0.12], "roe": 0.15},
+    "Payment networks / financial infrastructure": {"gross": [0.60, 0.40], "operating": [0.30, 0.15], "roe": 0.15},
+    "Healthcare services / hospitals": {"gross": [0.40, 0.20], "operating": [0.15, 0.08], "roe": 0.15}
+  },
+  "dataRequirements": {
+    "growth": ["quarterRevenueGrowth"],
+    "quality": ["grossMargins", "operatingMargins", "returnOnEquity"],
+    "cashFlow": ["freeCashflow", "operatingCashflow", "capex"],
+    "valuation": ["marketCap"],
+    "risk": ["totalCash", "totalDebt"],
+    "sustainability": ["operatingMargins", "quarterRevenueGrowth"]
+  },
   "rules": [
+    { "field": "softwareDisclosureUnclear", "op": "eq", "value": true, "caps": { "cashFlow": 3, "valuation": 3 }, "reason": "按报告经营现金流及资本开支计算；软件开发投入未单列，无法确认额外支出，现金流与估值保持中性待复核。" },
+    { "field": "quoteAgeDays", "op": "gt", "value": 5, "caps": { "valuation": 3 }, "block": true, "reason": "行情超过5天未更新：保留真实时间，暂停正常排名。" },
+    { "field": "recentLossHistory", "op": "eq", "value": true, "caps": { "quality": 3, "sustainability": 2 }, "block": true, "reason": "最近三个已披露年度存在亏损：当前高利润可能是周期或转折，需持续盈利专项复核。" },
+    { "field": "customerLossRevenueShare", "op": "gt", "value": 0.05, "caps": { "growth": 4, "risk": 2, "sustainability": 2 }, "block": true, "reason": "已披露客户流失涉及超过5%收入：历史增长不能直接外推，暂停正常榜单资格。" },
+    { "field": "cashflowReviewRequired", "op": "eq", "value": true, "caps": { "cashFlow": 2, "valuation": 3 }, "block": true, "reason": "经营现金流异常大或客户资金归属未核实：暂停现金流判断及完整排名。" },
+    { "field": "unverifiedForecast", "op": "eq", "value": true, "caps": { "valuation": 3 }, "reason": "FPE预测年度、更新时间或分析师覆盖尚未核实：仅作参考，不授予强低估评级。" },
     { "field": "quarterRevenueGrowth", "op": "lt", "value": -0.1, "caps": { "growth": 2 }, "block": true, "reason": "最新可比季度营收下滑超过10%：年报高增长不代表当前仍高增长。" },
     { "field": "quarterGrowthMissing", "op": "eq", "value": true, "caps": { "growth": 3 }, "block": true, "reason": "最新季度同比缺失或超过200天：仅有年度代理，不能确认当前高增长。" },
     { "field": "leaseCoverageMissing", "op": "eq", "value": true, "caps": { "risk": 3 }, "block": true, "reason": "医疗服务租赁口径未完整核实：银行借款少不能直接认定低风险。" },

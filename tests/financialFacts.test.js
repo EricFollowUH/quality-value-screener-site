@@ -47,6 +47,6 @@ test('research evidence is sourced, never a fixed score, and expires on a newer 
  const current=applyResearchEvidence('NUTX',{latestFiscalEnd:'2026-09-30',latestPeriodNetIncome:152878000},'2026-11-10');
  assert.ok(current.metrics.noncashReversalShare>.15); assert.equal(current.sources.length,2);
  assert.equal(applyResearchEvidence('NUTX',{latestFiscalEnd:'2026-12-31'},'2027-02-01').metrics.researchNeedsRefresh,1);
- const g=applyModelGuardrails('Healthcare services / hospitals',{...current.metrics,quarterRevenueGrowth:-.187,quarterAgeDays:41}, {growth:5,quality:5,cashFlow:5,valuation:5,risk:5,sustainability:5});
+ const g=applyModelGuardrails('Healthcare services / hospitals',{...current.metrics,quarterRevenueGrowth:-.187,quarterAgeDays:41,totalCash:250e6,totalDebt:330e6,financeLeaseDebt:290e6,operatingLeaseDebt:10e6,grossMargins:.5,operatingMargins:.3,returnOnEquity:.4}, {growth:5,quality:5,cashFlow:5,valuation:5,risk:5,sustainability:5});
  assert.equal(g.scores.growth,2); assert.equal(g.scores.risk,2); assert.equal(g.scores.quality,3); assert.equal(g.highQualityEligible,false);
 });

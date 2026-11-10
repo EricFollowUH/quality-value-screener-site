@@ -33,6 +33,7 @@ OUTPUT = ROOT / "public" / "data" / "us-market-scores.json"
 POLICY = json.loads((ROOT / "model-policy.json").read_text(encoding="utf-8"))
 sys.path.insert(0, str(ROOT))
 from scripts.financial_facts import SCHEMA, read_financials, refine_metrics
+from scripts.data_quality import assess_data
 RESEARCH = json.loads((ROOT / 'research-evidence.json').read_text(encoding='utf-8'))
 SEC_USER_AGENT = os.environ.get(
     "SEC_USER_AGENT",
@@ -68,7 +69,7 @@ FLOW_FACTS = {
     "operatingIncome": ("OperatingIncomeLoss",),
     "operatingCashflow": ("NetCashProvidedByUsedInOperatingActivities",),
     "capex": (
-        "PaymentsToAcquirePropertyPlantAndEquipment",
+        "PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsToAcquireProductiveAssets",
     ),
     "capitalizedSoftware": ("PaymentsToDevelopSoftware",),
     "financeLeasePrincipal": tuple(SCHEMA['financeLeasePrincipal']),
@@ -82,7 +83,6 @@ INSTANT_FACTS = {
     ),
     "cash": (
         "CashAndCashEquivalentsAtCarryingValue",
-        "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
     ),
     "longTermDebt": (
         "LongTermDebtAndFinanceLeaseObligationsNoncurrent",
@@ -322,7 +322,7 @@ def classify_template(sector: str, industry: str, ticker: str = "", name: str = 
         return "Utilities"
     if any(word in text for word in ("oil", "gas", "energy")):
         return "Energy / oil and gas"
-    if any(word in text for word in ("semiconductor", "computer manufacturing")):
+    if 'semiconductor' in text:
         return "Semiconductors / chip design"
     if any(word in text for word in (
         "credit services",
@@ -358,8 +358,6 @@ def classify_template(sector: str, industry: str, ticker: str = "", name: str = 
         return "Consumer brands / staples"
     if any(word in text for word in ("machinery", "equipment", "manufacturing", "industrial")):
         return "Industrials / manufacturing"
-    if sector.strip().lower() == "technology":
-        return "AI / cloud / platform technology"
     if sector.strip().lower() in {"health care", "healthcare"}:
         return "Healthcare"
     return "General quality/value"
@@ -386,15 +384,13 @@ def score_growth(template: str, revenue_growth: float | None, earnings_growth: f
 
 def score_quality(template: str, gross_margin: float | None, operating_margin: float | None, roe: float | None) -> int:
     if template == "Banks":
-        return 3 if roe is not None and roe > 0.12 else 2 if roe is not None and roe > 0.08 else 1
-    score = 0
-    if gross_margin is not None:
-        score += 2 if gross_margin >= 0.70 else 1 if gross_margin >= 0.40 else 0
-    if operating_margin is not None:
-        score += 2 if operating_margin >= 0.25 else 1 if operating_margin >= 0.10 else 0
-    if roe is not None and roe >= 0.15:
-        score += 1
-    return clamp(score)
+        return 0 if roe is None else 5 if roe>=.18 else 4 if roe>=.14 else 3 if roe>=.10 else 2 if roe>=.06 else 1
+    bands=POLICY['qualityBands'].get(template,POLICY['qualityBands']['default'])
+    def points(value,cutoffs):
+        return 0 if value is None else 2 if value>=cutoffs[0] else 1 if value>=cutoffs[1] else 0
+    available=(2 if gross_margin is not None else 0)+(2 if operating_margin is not None else 0)+(1 if roe is not None else 0)
+    earned=points(gross_margin,bands['gross'])+points(operating_margin,bands['operating'])+(1 if roe is not None and roe>=bands['roe'] else 0)
+    return math.floor(earned/available*5+.5) if available else 0
 
 
 def score_cashflow(fcf: float | None, market_cap: float | None, revenue: float | None) -> int:
@@ -513,7 +509,11 @@ def apply_model_guardrails(template, metrics, raw_scores):
         'materialMinorityCash': metrics.get('noncontrollingDistributions') is not None and (metrics.get('operatingCashflow') or 0)>0 and metrics['noncontrollingDistributions']/metrics['operatingCashflow']>.2,
         "nonOperatingShare": (net - op) / net if not financial and net is not None and net > 0 and op is not None else None,
         "equityToRevenue": ratio(metrics.get("totalEquity"), metrics.get("totalRevenue")) if (metrics.get('totalRevenue') or 0)>0 else None,
-        "softwareInvestmentMissing": software and metrics.get("capitalizedSoftware") is None,
+        "softwareInvestmentMissing": 'Games' in template and metrics.get("capitalizedSoftware") is None and metrics.get('capexIncludesIntangibles')!=1,
+        'softwareDisclosureUnclear':software and 'Games' not in template and metrics.get('capitalizedSoftware') is None and metrics.get('capexIncludesIntangibles')!=1,
+        'cashflowReviewRequired': metrics.get('cashflowReviewRequired') is True or (not financial and metrics.get('operatingCashflow') is not None and metrics.get('totalRevenue') is not None and metrics['operatingCashflow']>metrics['totalRevenue']*.8 and metrics.get('customerFundsChange') is None),
+        'unverifiedForecast':metrics.get('forwardPE') is not None and metrics.get('forecastVerified')!=1,
+        'recentLossHistory':metrics.get('profitHistoryYears',0)>=3 and metrics.get('profitableYears',3)<3,
     }
     flags, blocked = [], False
     for rule in POLICY["rules"]:
@@ -528,8 +528,9 @@ def apply_model_guardrails(template, metrics, raw_scores):
                 scores[key] = min(scores[key], cap)
             flags.append(rule["reason"])
             blocked = blocked or rule.get("block", False)
-    return {"modelVersion": POLICY["version"], "scores": scores, "flags": flags,
-            "highQualityEligible": not blocked and all(scores[key] >= 3 for key in ("quality", "risk", "sustainability"))}
+    assessment=assess_data(template,{**metrics,'cashflowReviewRequired':evidence['cashflowReviewRequired']},scores,blocked)
+    return {**assessment,"modelVersion": POLICY["version"], "flags": flags,
+            "highQualityEligible": assessment['rankEligible'] and all(scores[key] >= 3 for key in ("quality", "risk", "sustainability"))}
 
 
 def score_stock(
@@ -679,7 +680,12 @@ def evaluate_metrics(ticker, template, metrics, generated_at):
         sources=review['sources']
         if generated_at[:10]<=review['expiresAt'] and metrics.get('latestFiscalEnd')==review['periodEnd']:
             metrics.update(review['metrics'])
-            metrics['noncashReversalShare']=ratio(review['metrics']['noncashReversalParentImpact'],metrics.get('latestPeriodNetIncome'))
+            metrics['noncashReversalShare']=ratio(review['metrics'].get('noncashReversalParentImpact'),metrics.get('latestPeriodNetIncome'))
+            if review['metrics'].get('customerFundsChange') is not None and metrics.get('operatingCashflow') is not None:
+                metrics['economicOperatingCashflow']=metrics['operatingCashflow']-metrics['customerFundsChange']
+                metrics['freeCashflow']=metrics['economicOperatingCashflow']-abs(metrics['capex'])-abs(metrics.get('capitalizedSoftware') or 0)-abs(metrics.get('intangibleInvestment') or 0) if metrics.get('capex') is not None else None
+                metrics['fcfYield']=ratio(metrics['freeCashflow'],metrics.get('marketCap'))
+                metrics['ownerCashflow']=None
         else:
             metrics['researchNeedsRefresh']=1
     growth=score_growth(template,metrics.get('quarterRevenueGrowth'),None)
@@ -692,12 +698,15 @@ def evaluate_metrics(ticker, template, metrics, generated_at):
     metrics={key:rounded(value) if isinstance(value,(int,float)) else value for key,value in metrics.items()}
     guard = apply_model_guardrails(template, metrics, dict(growth=growth, quality=quality, cashFlow=cashflow, valuation=valuation, risk=risk, sustainability=sustainability))
     return {
-        "totalScore": sum(guard["scores"].values()),
+        "totalScore": guard['totalScore'],
         **guard["scores"],
         "modelVersion": guard["modelVersion"],
         "reviewFlags": guard["flags"],
         "highQualityEligible": guard["highQualityEligible"],
         'evidenceSources': sources,
+        'rankEligible':guard['rankEligible'],
+        'dataQuality':guard['dataQuality'],
+        'metricSources':metrics.get('provenance',{}),
         "metrics": {
             key: rounded(value) if isinstance(value, (int, float)) else value
             for key, value in metrics.items()
@@ -805,4 +814,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    # Preserve the old command as an entry point, but never publish frame-only
+    # scores without the v2.2 company checks and atomic validation.
+    import subprocess
+    for script in ('cache-market-universe.mjs','cache-company-facts.mjs','cache-market-quotes.mjs'):
+        subprocess.run(['node',str(ROOT/'scripts'/script)],cwd=ROOT,check=True)
+    from scripts.refresh_market import main as refresh_market
+    refresh_market()

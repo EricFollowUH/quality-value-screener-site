@@ -4,12 +4,12 @@
   "grossProfit": ["GrossProfit"],
   "operatingIncome": ["OperatingIncomeLoss"],
   "operatingCashflow": ["NetCashProvidedByUsedInOperatingActivities"],
-  "capex": ["PaymentsToAcquirePropertyPlantAndEquipment"],
+  "capex": ["PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsToAcquireProductiveAssets", "PaymentsToAcquireOtherPropertyPlantAndEquipment"],
   "capitalizedSoftware": ["PaymentsToDevelopSoftware"],
   "financeLeasePrincipal": ["FinanceLeasePrincipalPayments", "CapitalLeasePrincipalPayments"],
   "noncontrollingDistributions": ["PaymentsOfDividendsNoncontrollingInterest", "PaymentsToMinorityShareholders"],
   "noncontrollingIncome": ["NetIncomeLossAttributableToNoncontrollingInterest"],
-  "cash": ["CashAndCashEquivalentsAtCarryingValue"],
+  "cash": ["CashAndCashEquivalentsAtCarryingValue", "Cash"],
   "equity": ["StockholdersEquity"],
   "longTermDebt": ["LongTermDebtNoncurrent"],
   "currentDebt": ["LongTermDebtCurrent"],
@@ -17,5 +17,12 @@
   "financeLeaseCurrent": ["FinanceLeaseLiabilityCurrent", "CapitalLeaseObligationsCurrent"],
   "financeLeaseNoncurrent": ["FinanceLeaseLiabilityNoncurrent", "CapitalLeaseObligationsNoncurrent"],
   "operatingLeaseCurrent": ["OperatingLeaseLiabilityCurrent"],
-  "operatingLeaseNoncurrent": ["OperatingLeaseLiabilityNoncurrent"]
+  "operatingLeaseNoncurrent": ["OperatingLeaseLiabilityNoncurrent"],
+  "costOfRevenue": ["CostOfRevenue", "CostOfGoodsAndServicesSold", "CostOfGoodsSold", "CostOfServices"],
+  "intangibleInvestment": ["PaymentsToAcquireIntangibleAssets"],
+  "customerFundsChange": ["CustomerCardFunding", "IncreaseDecreaseInCustomerFunds"],
+  "cashAndShortTermInvestments": ["CashCashEquivalentsAndShortTermInvestments"],
+  "debtCombinedNoncurrent": ["LongTermDebtAndFinanceLeaseObligationsNoncurrent"],
+  "debtCombinedCurrent": ["LongTermDebtAndFinanceLeaseObligationsCurrent"],
+  "dilutedShares": ["WeightedAverageNumberOfDilutedSharesOutstanding"]
 }

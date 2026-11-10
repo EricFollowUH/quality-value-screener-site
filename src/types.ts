@@ -8,6 +8,7 @@ export type ScoreDimension =
 
 export type StockScore = {
   ticker: string;
+  error?: string;
   name: string;
   sector: string;
   industry: string;
@@ -18,20 +19,25 @@ export type StockScore = {
   reviewFlags?: string[];
   highQualityEligible?: boolean;
   evidenceSources?: string[];
-  totalScore: number;
-  growth: number;
-  quality: number;
-  cashFlow: number;
-  valuation: number;
-  risk: number;
-  sustainability: number;
+  rankEligible?: boolean;
+  dataQuality?: {status: string; complete: boolean; checkedAt: string | null; periodEnd: string | null; dimensions: Record<ScoreDimension, string>};
+  metricSources?: Record<string, {url: string; end: string; filed?: string; basis?: string}>;
+  totalScore: number | null;
+  growth: number | null;
+  quality: number | null;
+  cashFlow: number | null;
+  valuation: number | null;
+  risk: number | null;
+  sustainability: number | null;
   reasons: Record<ScoreDimension, string>;
   metrics: Record<string, number | null>;
 };
 
 export type Snapshot = {
   generatedAt: string;
-  cadence: "weekly" | "live";
+  cadence: "weekly" | "live" | "daily";
+  modelVersion?: string;
+  validation?: {passed: boolean};
   source: string;
   featuredTickers: string[];
   coverage?: {
@@ -43,6 +49,9 @@ export type Snapshot = {
     matchedCount?: number;
     returnedCount?: number;
     excludedCount?: number;
+    coveredCount?: number;
+    rankEligibleCount?: number;
+    incompleteCount?: number;
   };
   scores: StockScore[];
 };
