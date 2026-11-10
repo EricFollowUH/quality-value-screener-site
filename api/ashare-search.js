@@ -1,4 +1,4 @@
-import { searchUniverse } from "./lib/aShareScreener.js";
+import { searchUniverse } from "../server/lib/aShareScreener.js";
 
 export default function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");

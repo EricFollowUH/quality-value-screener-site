@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFinancials } from '../api/lib/financialFacts.js';
-import { refineMetrics } from '../api/lib/refineMetrics.js';
-import { scoreCompany } from '../api/lib/liveScreener.js';
-import { queryMarketSnapshot, selectCompatibleSnapshot } from '../api/lib/marketSnapshot.js';
+import { readFinancials } from '../server/lib/financialFacts.js';
+import { refineMetrics } from '../server/lib/refineMetrics.js';
+import { scoreCompany } from '../server/lib/liveScreener.js';
+import { queryMarketSnapshot, selectCompatibleSnapshot } from '../server/lib/marketSnapshot.js';
 import {spawnSync} from 'node:child_process';
 
 const fact=(start,end,val)=>({start,end,val,form:'10-Q',filed:'2026-08-26',accn:'0001045810-26-000075'});

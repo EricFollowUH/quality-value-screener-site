@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyModelGuardrails, classifyGames } from "../api/lib/modelGuardrails.js";
-import { scoreCompany } from "../api/lib/liveScreener.js";
+import { applyModelGuardrails, classifyGames } from "../server/lib/modelGuardrails.js";
+import { scoreCompany } from "../server/lib/liveScreener.js";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 

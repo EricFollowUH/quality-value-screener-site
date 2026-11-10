@@ -1,4 +1,4 @@
-import {loadMarketSnapshot} from './lib/marketSnapshot.js';
+import {loadMarketSnapshot} from '../server/lib/marketSnapshot.js';
 
 export default async function handler(req,res){
   const snapshot=await loadMarketSnapshot();
