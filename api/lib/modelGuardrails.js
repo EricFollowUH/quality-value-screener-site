@@ -25,6 +25,7 @@ export function applyModelGuardrails(template, metrics, rawScores) {
     softwareDisclosureUnclear:software && !/Games/.test(template) && metrics.capitalizedSoftware==null && metrics.capexIncludesIntangibles!==1,
     cashflowReviewRequired: metrics.cashflowReviewRequired===true || (!financial && metrics.totalRevenue!=null && metrics.operatingCashflow!=null && metrics.operatingCashflow>metrics.totalRevenue*.8 && metrics.customerFundsChange==null),
     unverifiedForecast: metrics.forwardPE!=null && metrics.forecastVerified!==1,
+    valuationEvidenceMissing:!financial && metrics.forecastVerified!==1 && (!(metrics.trailingPE>0) || metrics.fcfYield==null),
     recentLossHistory:metrics.profitHistoryYears>=3 && metrics.profitableYears<3
   };
   const flags = [];

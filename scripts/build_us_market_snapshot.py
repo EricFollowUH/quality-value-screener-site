@@ -513,6 +513,7 @@ def apply_model_guardrails(template, metrics, raw_scores):
         'softwareDisclosureUnclear':software and 'Games' not in template and metrics.get('capitalizedSoftware') is None and metrics.get('capexIncludesIntangibles')!=1,
         'cashflowReviewRequired': metrics.get('cashflowReviewRequired') is True or (not financial and metrics.get('operatingCashflow') is not None and metrics.get('totalRevenue') is not None and metrics['operatingCashflow']>metrics['totalRevenue']*.8 and metrics.get('customerFundsChange') is None),
         'unverifiedForecast':metrics.get('forwardPE') is not None and metrics.get('forecastVerified')!=1,
+        'valuationEvidenceMissing':not financial and metrics.get('forecastVerified')!=1 and (not (metrics.get('trailingPE') or 0)>0 or metrics.get('fcfYield') is None),
         'recentLossHistory':metrics.get('profitHistoryYears',0)>=3 and metrics.get('profitableYears',3)<3,
     }
     flags, blocked = [], False
@@ -691,7 +692,9 @@ def evaluate_metrics(ticker, template, metrics, generated_at):
     growth=score_growth(template,metrics.get('quarterRevenueGrowth'),None)
     quality=score_quality(template,metrics.get('grossMargins'),metrics.get('operatingMargins'),metrics.get('returnOnEquity'))
     cashflow=score_cashflow(metrics.get('ownerCashflow') if metrics.get('ownerCashflow') is not None else metrics.get('freeCashflow'),metrics.get('marketCap'),metrics.get('totalRevenue'))
-    valuation=score_valuation(template,metrics.get('forwardPE'),metrics.get('trailingPE'),metrics.get('fcfYield'),metrics.get('priceToBook'),metrics.get('marketCap'))
+    forward=metrics.get('forwardPE')
+    scoring_forward=forward if metrics.get('forecastVerified')==1 or (forward is not None and forward<=0) else None
+    valuation=score_valuation(template,scoring_forward,metrics.get('trailingPE'),metrics.get('fcfYield'),metrics.get('priceToBook'),metrics.get('marketCap'))
     risk=score_risk(metrics.get('totalCash'),metrics.get('totalDebt'),metrics.get('ebitda'),metrics.get('debtToEquity'))
     sustainability=score_sustainability(template,metrics.get('grossMargins'),metrics.get('operatingMargins'),metrics.get('quarterRevenueGrowth'),metrics.get('returnOnEquity'))
 

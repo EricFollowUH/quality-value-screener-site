@@ -565,6 +565,7 @@ function compactReason(stock: StockScore, dimension: ScoreDimension) {
     case "valuation": {
       const forwardPE = metrics.forwardPE ?? null;
       const trailingPE = metrics.trailingPE ?? null;
+      if(metrics.forecastVerified!==1 && (forwardPE==null || forwardPE>0)) return `${scoreTone(score)}。按TTM P/E ${fmtMultiple(trailingPE)}与可核实FCF收益率 ${fmtPctMetric(fcfYield)}评分；FPE ${fmtMultiple(forwardPE)}仅作参考，预测期及覆盖未核实。`;
       const fcfYield = metrics.fcfYield ?? (metrics.freeCashflow != null && metrics.marketCap ? metrics.freeCashflow / metrics.marketCap : null);
       if (stock.template === "REITs") {
         return `${scoreTone(score)}。REIT 应优先使用 P/FFO 或 AFFO 收益率；当前缺少该口径，暂按中性处理。`;

@@ -69,3 +69,11 @@ test('retail quality is not judged by software gross-margin thresholds',()=>{
  const software=scoreCompany({ticker:'S',template:'SaaS / enterprise software',metrics});
  assert.ok(retail.quality>software.quality);
 });
+test('unverified low forward PE cannot outweigh expensive realized earnings and weak cash yield',()=>{
+ const s=scoreCompany({ticker:'T',template:'General quality/value',metrics:{marketCap:1e10,totalRevenue:1e10,forwardPE:1,trailingPE:60,fcfYield:.01,freeCashflow:1e8,operatingCashflow:2e8,capex:1e8}});
+ assert.equal(s.valuation,1);
+});
+test('independently cheap TTM earnings and verified cash yield can earn strong value without FPE',()=>{
+ const s=scoreCompany({ticker:'T',template:'General quality/value',metrics:{marketCap:1e10,totalRevenue:1e10,forwardPE:null,trailingPE:8,fcfYield:.10,freeCashflow:1e9,operatingCashflow:1.1e9,capex:1e8}});
+ assert.equal(s.valuation,5);
+});

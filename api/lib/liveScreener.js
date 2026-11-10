@@ -487,7 +487,7 @@ export function scoreCompany({ ticker, name, sector, industry, template, metrics
   const fcfYield = metrics.fcfYield ?? null;
   const valuationResult = scoreValuation({
     template,
-    forwardPE: metrics.forwardPE,
+    forwardPE: metrics.forecastVerified===1 || metrics.forwardPE<=0 ? metrics.forwardPE : null,
     trailingPE: metrics.trailingPE,
     fcfYield,
     priceToBook: metrics.priceToBook,
