@@ -17,6 +17,7 @@ export type StockScore = {
   modelVersion?: string;
   reviewFlags?: string[];
   highQualityEligible?: boolean;
+  evidenceSources?: string[];
   totalScore: number;
   growth: number;
   quality: number;

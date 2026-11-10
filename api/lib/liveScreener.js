@@ -1,5 +1,8 @@
 import { scoreValuation } from "./valuationModel.js";
 import { applyModelGuardrails, classifyGames } from "./modelGuardrails.js";
+import { readFinancials, trailingValue } from './financialFacts.js';
+import { refineMetrics } from './refineMetrics.js';
+import { applyResearchEvidence } from './researchEvidence.js';
 
 const DEFAULT_TICKERS = [
   "MSFT",
@@ -171,21 +174,11 @@ function periodFacts(companyFacts, keys, form, minMonths, maxMonths) {
 }
 
 function trailingFourQuarters(companyFacts, keys) {
-  const quarters = periodFacts(companyFacts, keys, "10-Q", 2, 4.5);
-  const unique = new Map();
-  for (const item of quarters) {
-    const existing = unique.get(item.end);
-    if (!existing || String(item.filed || "") > String(existing.filed || "")) unique.set(item.end, item);
+  for(const key of keys) {
+    const result=trailingValue(allFacts(companyFacts,[key]));
+    if(result) return result;
   }
-  const latest = [...unique.values()]
-    .sort((a, b) => String(b.end).localeCompare(String(a.end)))
-    .slice(0, 4);
-  if (latest.length < 3) return null;
-  return {
-    value: latest.reduce((sum, item) => sum + item.val, 0),
-    end: latest[0].end,
-    sourceKeys: [...new Set(latest.map((item) => item.key))]
-  };
+  return null;
 }
 
 function annualFacts(companyFacts, keys) {
@@ -342,6 +335,7 @@ async function fetchSecCompany(entry) {
 }
 
 function classifyTemplate(sector, industry, name = "") {
+  if (/\bhealth inc\b|hospital|medical\/nursing services|healthcare services|health care services/i.test(`${sector} ${industry} ${name}`)) return 'Healthcare services / hospitals';
   if (classifyGames(sector, industry, name)) return "Games / interactive entertainment";
   const text = `${sector} ${industry}`.toLowerCase();
   if (text.includes("reit")) return "REITs";
@@ -418,6 +412,7 @@ function sustainabilityScore(template, grossMargin, operatingMargin, revenueGrow
 }
 
 export function extractMetrics(companyFacts, price) {
+  const aligned=readFinancials(companyFacts);
   const revenueTtm = trailingFourQuarters(companyFacts, FACT_KEYS.revenue);
   const netIncomeTtm = trailingFourQuarters(companyFacts, FACT_KEYS.netIncome);
   const grossProfitTtm = trailingFourQuarters(companyFacts, FACT_KEYS.grossProfit);
@@ -450,7 +445,7 @@ export function extractMetrics(companyFacts, price) {
     : null;
   const ebitdaProxy = operatingIncomeTtm?.value ?? latestNetIncome;
 
-  return {
+  return refineMetrics({
     netIncome: latestNetIncome,
     operatingIncome: operatingIncomeTtm?.value ?? null,
     totalEquity: equity,
@@ -462,7 +457,7 @@ export function extractMetrics(companyFacts, price) {
     percentChange: price.percentChange ?? null,
     marketCap,
     forwardPE: price.forwardPE ?? null,
-    trailingPE: price.trailingPE ?? (marketCap && netIncomeTtm?.value > 0 ? marketCap / netIncomeTtm.value : null),
+    trailingPE: price.trailingPE ?? (marketCap && netIncomeTtm?.basis==='TTM' && netIncomeTtm.value > 0 ? marketCap / netIncomeTtm.value : null),
     forwardEps: price.forwardEps ?? null,
     trailingEps: price.trailingEps ?? null,
     priceToBook: price.priceToBook ?? (marketCap && equity ? marketCap / equity : null),
@@ -480,15 +475,21 @@ export function extractMetrics(companyFacts, price) {
     debtToEquity: totalDebt != null && equity ? totalDebt / equity : null,
     sharesOutstanding: shares,
     latestFiscalEnd: revenueTtm?.end ?? revenueAnnual[0]?.end ?? null
-  };
+  }, aligned, new Date().toISOString());
 }
 
 export function scoreCompany({ ticker, name, sector, industry, template, metrics }) {
+  if(template==='Healthcare services / hospitals') {
+    sector='Healthcare';
+    if(industry==='Business Services') industry=template;
+  }
+  const research=applyResearchEvidence(ticker,metrics);
+  metrics=research.metrics;
   const reasons = {};
-  const [growth, growthReason] = growthScore(template, metrics.revenueGrowth, metrics.earningsGrowth);
+  const [growth, growthReason] = growthScore(template, metrics.quarterRevenueGrowth, null);
   const [quality, qualityReason] = qualityScore(template, metrics.grossMargins, metrics.operatingMargins, metrics.returnOnEquity);
-  const [cashFlow, cashFlowReason] = cashFlowScore(metrics.freeCashflow, metrics.operatingCashflow, metrics.marketCap, metrics.totalRevenue);
-  const fcfYield = metrics.freeCashflow != null && metrics.marketCap ? metrics.freeCashflow / metrics.marketCap : null;
+  const [cashFlow, cashFlowReason] = cashFlowScore(metrics.ownerCashflow ?? metrics.freeCashflow, metrics.operatingCashflow, metrics.marketCap, metrics.totalRevenue);
+  const fcfYield = metrics.fcfYield ?? null;
   const valuationResult = scoreValuation({
     template,
     forwardPE: metrics.forwardPE,
@@ -524,6 +525,7 @@ export function scoreCompany({ ticker, name, sector, industry, template, metrics
     modelVersion: guard.modelVersion,
     reviewFlags: guard.flags,
     highQualityEligible: guard.highQualityEligible,
+    evidenceSources: research.sources,
     reasons,
     metrics
   };

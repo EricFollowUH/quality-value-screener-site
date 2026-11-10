@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
 const scores = { growth: 5, quality: 5, cashFlow: 5, valuation: 5, risk: 5, sustainability: 5 };
-const healthy = { marketCap: 10e9, totalRevenue: 1e9, totalDebt: 0, netIncome: 200e6, operatingIncome: 240e6, totalEquity: 2e9, freeCashflow: 180e6, capex: 20e6, capitalizedSoftware: 0, forwardPE: 20 };
+const healthy = { marketCap: 10e9, totalRevenue: 1e9, totalDebt: 0, netIncome: 200e6, operatingIncome: 240e6, totalEquity: 2e9, freeCashflow: 180e6, capex: 20e6, capitalizedSoftware: 0, forwardPE: 20, quarterRevenueGrowth:.2, quarterAgeDays:45 };
 
 test("MSGM-like microcap cannot qualify through margins and cheap PE alone", () => {
   const result = applyModelGuardrails("Games / interactive entertainment", { ...healthy, marketCap: 19e6, totalRevenue: 11.3e6, netIncome: 6.84e6, operatingIncome: 3.25e6, totalEquity: 3.88e6, totalDebt: null, capitalizedSoftware: 1.1e6, freeCashflow: 3e6 }, scores);
@@ -75,12 +75,12 @@ test("live score total is the sum of guarded dimensions", () => {
   assert.equal(stock.totalScore, ["growth", "quality", "cashFlow", "valuation", "risk", "sustainability"].reduce((sum, key) => sum + stock[key], 0));
   assert.equal(stock.highQualityEligible, false);
   assert.equal(stock.risk, 1);
-  assert.equal(stock.modelVersion, "2.0.0");
+  assert.equal(stock.modelVersion, "2.1.0");
 });
 
 test("published local snapshot obeys the same gates for every scored company", () => {
   const snapshot = JSON.parse(readFileSync(new URL("../public/data/us-market-scores.json", import.meta.url)));
-  assert.equal(snapshot.modelVersion, "2.0.0");
+  assert.equal(snapshot.modelVersion, "2.1.0");
   for (const stock of snapshot.scores) {
     const dimensions = Object.fromEntries(Object.keys(scores).map(key => [key, stock[key]]));
     const guarded = applyModelGuardrails(stock.template, stock.metrics, dimensions);

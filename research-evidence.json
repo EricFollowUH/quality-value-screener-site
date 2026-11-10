@@ -1,0 +1,11 @@
+{
+  "NUTX": {
+    "periodEnd": "2026-09-30",
+    "filedAt": "2026-11-05",
+    "expiresAt": "2027-03-01",
+    "template": "Healthcare services / hospitals",
+    "sources": ["https://www.sec.gov/Archives/edgar/data/1479681/000162828026071003/nutx-20260930xexx99.htm", "https://s3.amazonaws.com/sec.irpass.cc/2722/0001628280-26-070993.htm"],
+    "metrics": {"settlementDependent": 1, "noncashExpenseReversal": 52319000, "noncashReversalParentImpact": 25000000, "reviewOperatingCashflow": 188065000, "reviewCapex": 8945000, "reviewFinanceLeasePrincipal": 4453000, "reviewNoncontrollingDistributions": 53708000, "reviewOwnerCashflow": 120959000, "reviewCashflowMonths": 9},
+    "note": "2026年前三季费用冲回为非现金估计变更，不是造假认定；IDR付款资格、结算和回款影响收入可持续性。下一期财报公布或到期后需复核。"
+  }
+}

@@ -50,6 +50,9 @@ class ValuationModelTests(unittest.TestCase):
 
 
 class IndustryClassificationTests(unittest.TestCase):
+    def test_healthcare_business_overrides_bad_exchange_sector(self):
+        self.assertEqual(MODULE.classify_template('Consumer Discretionary','Business Services','NUTX','Nutex Health Inc.'), 'Healthcare services / hospitals')
+
     def test_games_are_not_enterprise_saas(self):
         self.assertEqual(MODULE.classify_template("Technology", "Computer Software: Prepackaged Software", "MSGM", "Motorsport Games Inc."), "Games / interactive entertainment")
 
@@ -65,7 +68,7 @@ class IndustryClassificationTests(unittest.TestCase):
     def test_health_care_sector_falls_back_to_healthcare(self):
         self.assertEqual(
             MODULE.classify_template("Health Care", "Medical/Nursing Services"),
-            "Healthcare",
+            "Healthcare services / hospitals",
         )
 
     def test_payment_and_platform_company_names_override_broad_industries(self):
