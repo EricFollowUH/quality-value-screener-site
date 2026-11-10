@@ -1,5 +1,5 @@
 {
-  "version": "2.1.0",
+  "version": "2.1.1",
   "rules": [
     { "field": "quarterRevenueGrowth", "op": "lt", "value": -0.1, "caps": { "growth": 2 }, "block": true, "reason": "最新可比季度营收下滑超过10%：年报高增长不代表当前仍高增长。" },
     { "field": "quarterGrowthMissing", "op": "eq", "value": true, "caps": { "growth": 3 }, "block": true, "reason": "最新季度同比缺失或超过200天：仅有年度代理，不能确认当前高增长。" },

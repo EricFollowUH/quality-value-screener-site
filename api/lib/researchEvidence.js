@@ -1,4 +1,5 @@
 import evidence from '../../research-evidence.json' with {type:'json'};
+export const researchedTemplate = ticker => evidence[ticker]?.template;
 
 export function applyResearchEvidence(ticker, metrics, asOf=new Date().toISOString()) {
   const item=evidence[ticker];

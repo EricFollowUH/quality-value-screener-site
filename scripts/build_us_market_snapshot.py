@@ -304,7 +304,9 @@ def load_sec_frames() -> dict[str, dict[str, dict[str, Any]]]:
 
 def classify_template(sector: str, industry: str, ticker: str = "", name: str = "") -> str:
     text = f"{sector} {industry} {ticker} {name}".lower()
-    if re.search(r'\bhealth inc\b|hospital|medical/nursing services|healthcare services|health care services', text):
+    if RESEARCH.get(ticker,{}).get('template'):
+        return RESEARCH[ticker]['template']
+    if re.search(r'hospital|medical/nursing services|healthcare services|health care services', text):
         return 'Healthcare services / hospitals'
     if re.search(r"video games|electronic gaming|interactive entertainment|motorsport games", text) or ("software" in industry.lower() and re.search(r"\bgames\b", name.lower())):
         return "Games / interactive entertainment"

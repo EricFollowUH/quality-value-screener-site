@@ -5,6 +5,11 @@ import { refineMetrics } from '../api/lib/refineMetrics.js';
 import { applyModelGuardrails } from '../api/lib/modelGuardrails.js';
 import { applyResearchEvidence } from '../api/lib/researchEvidence.js';
 import { spawnSync } from 'node:child_process';
+import { classifyTemplate } from '../api/lib/liveScreener.js';
+test('an insurer with Health in its name is not a hospital',()=>{
+ assert.equal(classifyTemplate('Finance','Accident & Health Insurance','Oscar Health Inc.','OSCR'),'Insurance');
+ assert.equal(classifyTemplate('Public market','Business Services','Nutex Health Inc.','NUTX'),'Healthcare services / hospitals');
+});
 const fact = (start,end,val) => ({start,end,val,form:'10-Q',filed:'2026-11-05'});
 const rows=[fact('2025-01-01','2025-12-31',100),fact('2026-01-01','2026-09-30',90),fact('2025-01-01','2025-09-30',70)];
 test('TTM uses annual + current YTD - comparable prior YTD',()=>assert.equal(trailingValue(rows).value,120));

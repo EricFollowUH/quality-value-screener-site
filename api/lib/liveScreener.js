@@ -2,7 +2,7 @@ import { scoreValuation } from "./valuationModel.js";
 import { applyModelGuardrails, classifyGames } from "./modelGuardrails.js";
 import { readFinancials, trailingValue } from './financialFacts.js';
 import { refineMetrics } from './refineMetrics.js';
-import { applyResearchEvidence } from './researchEvidence.js';
+import { applyResearchEvidence, researchedTemplate } from './researchEvidence.js';
 
 const DEFAULT_TICKERS = [
   "MSFT",
@@ -334,8 +334,9 @@ async function fetchSecCompany(entry) {
   return { facts, submissions };
 }
 
-function classifyTemplate(sector, industry, name = "") {
-  if (/\bhealth inc\b|hospital|medical\/nursing services|healthcare services|health care services/i.test(`${sector} ${industry} ${name}`)) return 'Healthcare services / hospitals';
+export function classifyTemplate(sector, industry, name = "", ticker = '') {
+  if(researchedTemplate(ticker)) return researchedTemplate(ticker);
+  if (/hospital|medical\/nursing services|healthcare services|health care services/i.test(`${sector} ${industry} ${name}`)) return 'Healthcare services / hospitals';
   if (classifyGames(sector, industry, name)) return "Games / interactive entertainment";
   const text = `${sector} ${industry}`.toLowerCase();
   if (text.includes("reit")) return "REITs";
@@ -570,7 +571,7 @@ export async function screenTickers(tickers = DEFAULT_TICKERS) {
         const fallbackMeta = METADATA[ticker] || ["Public market", sec.submissions?.sicDescription || "SEC filer"];
         const sector = fallbackMeta[0];
         const industry = fallbackMeta[1] || sec.submissions?.sicDescription || "";
-        const template = classifyTemplate(sector, industry, sec.facts.entityName || entry.name);
+        const template = classifyTemplate(sector, industry, sec.facts.entityName || entry.name, ticker);
         const metrics = extractMetrics(sec.facts, price);
         return scoreCompany({
           ticker,

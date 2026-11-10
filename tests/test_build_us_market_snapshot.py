@@ -50,6 +50,9 @@ class ValuationModelTests(unittest.TestCase):
 
 
 class IndustryClassificationTests(unittest.TestCase):
+    def test_health_name_does_not_turn_an_insurer_into_a_hospital(self):
+        self.assertEqual(MODULE.classify_template('Finance','Accident & Health Insurance','OSCR','Oscar Health Inc.'),'Insurance')
+
     def test_healthcare_business_overrides_bad_exchange_sector(self):
         self.assertEqual(MODULE.classify_template('Consumer Discretionary','Business Services','NUTX','Nutex Health Inc.'), 'Healthcare services / hospitals')
 
